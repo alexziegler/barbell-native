@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		8514110E2F1BAAC900FF7D5F /* Auth in Frameworks */ = {isa = PBXBuildFile; productRef = 851410B12F1BA50000FF7D5F /* Auth */; };
+		8514110F2F1BAAC900FF7D5F /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 851410B22F1BA50000FF7D5F /* Supabase */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		851410992F1BA43300FF7D5F /* barbell-native.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "barbell-native.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +28,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8514110F2F1BAAC900FF7D5F /* Supabase in Frameworks */,
+				8514110E2F1BAAC900FF7D5F /* Auth in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +72,8 @@
 			);
 			name = "barbell-native";
 			packageProductDependencies = (
+				851410B12F1BA50000FF7D5F /* Auth */,
+				851410B22F1BA50000FF7D5F /* Supabase */,
 			);
 			productName = "barbell-native";
 			productReference = 851410992F1BA43300FF7D5F /* barbell-native.app */;
@@ -94,6 +103,9 @@
 			);
 			mainGroup = 851410902F1BA43300FF7D5F;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				851410B02F1BA50000FF7D5F /* XCRemoteSwiftPackageReference "supabase-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 8514109A2F1BA43300FF7D5F /* Products */;
 			projectDirPath = "";
@@ -332,6 +344,30 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		851410B02F1BA50000FF7D5F /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		851410B12F1BA50000FF7D5F /* Auth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 851410B02F1BA50000FF7D5F /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Auth;
+		};
+		851410B22F1BA50000FF7D5F /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 851410B02F1BA50000FF7D5F /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 851410912F1BA43300FF7D5F /* Project object */;
 }
