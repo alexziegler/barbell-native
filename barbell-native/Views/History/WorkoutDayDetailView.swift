@@ -6,19 +6,83 @@ struct WorkoutDayDetailView: View {
 
     var body: some View {
         List {
+            // Summary section with difficulty
+            if let difficulty = workoutDay.averageDifficulty {
+                Section {
+                    HStack {
+                        Text("Average Difficulty")
+                        Spacer()
+                        DifficultyBadge(difficulty: difficulty)
+                    }
+                }
+            }
+
+            // Sets grouped by exercise
             ForEach(workoutDay.setsByExerciseId, id: \.exerciseId) { exerciseGroup in
                 Section {
                     ForEach(exerciseGroup.sets) { set in
                         SetRow(set: set, hasPR: workoutService.hasPR(setId: set.id))
                     }
                 } header: {
-                    Text(exerciseGroup.exercise?.displayName ?? "Unknown Exercise")
+                    ExerciseSectionHeader(
+                        name: exerciseGroup.exercise?.name ?? "Unknown Exercise",
+                        sets: exerciseGroup.sets
+                    )
                 }
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle(workoutDay.formattedDate)
+        .navigationTitle(workoutDay.formattedDateWithYear)
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+struct DifficultyBadge: View {
+    let difficulty: Double
+
+    var body: some View {
+        Text(String(format: "%.1f", difficulty))
+            .font(.subheadline)
+            .fontWeight(.bold)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(WorkoutDay.difficultyColor(for: difficulty))
+            )
+    }
+}
+
+struct ExerciseSectionHeader: View {
+    let name: String
+    let sets: [WorkoutSet]
+
+    private var averageRPE: Double? {
+        let rpEs = sets.compactMap { $0.rpe }
+        guard !rpEs.isEmpty else { return nil }
+        return rpEs.reduce(0, +) / Double(rpEs.count)
+    }
+
+    var body: some View {
+        HStack {
+            Text(name)
+
+            Spacer()
+
+            if let rpe = averageRPE {
+                Text(String(format: "%.1f", rpe))
+                    .font(.caption2)
+                    .fontWeight(.bold)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(WorkoutDay.difficultyColor(for: rpe))
+                    )
+            }
+        }
     }
 }
 
@@ -75,16 +139,20 @@ struct SetRow: View {
 
 struct PRBadge: View {
     var body: some View {
-        Text("PR")
-            .font(.caption2)
-            .fontWeight(.bold)
-            .foregroundStyle(.white)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.orange)
-            )
+        HStack(spacing: 3) {
+            Text("🏆")
+                .font(.caption2)
+            Text("PR")
+                .font(.caption2)
+                .fontWeight(.bold)
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color.orange)
+        )
     }
 }
 

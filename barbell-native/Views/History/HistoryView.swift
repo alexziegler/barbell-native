@@ -81,7 +81,10 @@ struct HistoryView: View {
                             workoutDay: workoutDay,
                             workoutService: workoutService
                         )) {
-                            WorkoutDayRow(workoutDay: workoutDay)
+                            WorkoutDayRow(
+                                workoutDay: workoutDay,
+                                hasPR: workoutDay.sets.contains { workoutService.hasPR(setId: $0.id) }
+                            )
                         }
                     }
                 } header: {
@@ -310,28 +313,129 @@ private struct MonthGroup {
 
 struct WorkoutDayRow: View {
     let workoutDay: WorkoutDay
+    var hasPR: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(workoutDay.relativeDateString)
-                .font(.headline)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                HStack(spacing: 4) {
+                    Text(workoutDay.relativeDateString)
+                        .font(.headline)
 
-            HStack(spacing: 12) {
-                Label("\(workoutDay.exerciseCount) exercise\(workoutDay.exerciseCount == 1 ? "" : "s")", systemImage: "dumbbell.fill")
+                    if hasPR {
+                        Text("🏆")
+                            .font(.subheadline)
+                    }
+                }
 
-                Label("\(workoutDay.totalSets) set\(workoutDay.totalSets == 1 ? "" : "s")", systemImage: "number")
+                Spacer()
+
+                HStack(spacing: 8) {
+                    if let difficulty = workoutDay.averageDifficulty {
+                        DifficultyIndicator(difficulty: difficulty)
+                    }
+
+                    Text("\(workoutDay.totalSets) sets")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             }
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
 
             if !workoutDay.exercises.isEmpty {
-                Text(workoutDay.exercises.map { $0.displayName }.joined(separator: ", "))
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
+                FlowLayout(spacing: 6) {
+                    ForEach(workoutDay.exercises) { exercise in
+                        ExerciseBadge(name: exercise.displayName)
+                    }
+                }
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+struct DifficultyIndicator: View {
+    let difficulty: Double
+
+    var body: some View {
+        Text(String(format: "%.1f", difficulty))
+            .font(.caption2)
+            .fontWeight(.bold)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(WorkoutDay.difficultyColor(for: difficulty))
+            )
+    }
+}
+
+struct ExerciseBadge: View {
+    let name: String
+
+    var body: some View {
+        Text(name)
+            .font(.caption)
+            .fontWeight(.medium)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color(.systemGray5))
+            )
+    }
+}
+
+/// A simple flow layout that wraps content to new lines
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = arrangeSubviews(proposal: proposal, subviews: subviews)
+        return result.size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = arrangeSubviews(proposal: proposal, subviews: subviews)
+
+        for (index, position) in result.positions.enumerated() {
+            subviews[index].place(
+                at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y),
+                proposal: ProposedViewSize(result.sizes[index])
+            )
+        }
+    }
+
+    private func arrangeSubviews(proposal: ProposedViewSize, subviews: Subviews) -> (size: CGSize, positions: [CGPoint], sizes: [CGSize]) {
+        let maxWidth = proposal.width ?? .infinity
+        var positions: [CGPoint] = []
+        var sizes: [CGSize] = []
+        var currentX: CGFloat = 0
+        var currentY: CGFloat = 0
+        var lineHeight: CGFloat = 0
+        var totalHeight: CGFloat = 0
+        var totalWidth: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            sizes.append(size)
+
+            if currentX + size.width > maxWidth && currentX > 0 {
+                currentX = 0
+                currentY += lineHeight + spacing
+                lineHeight = 0
+            }
+
+            positions.append(CGPoint(x: currentX, y: currentY))
+            lineHeight = max(lineHeight, size.height)
+            currentX += size.width + spacing
+            totalWidth = max(totalWidth, currentX - spacing)
+        }
+
+        totalHeight = currentY + lineHeight
+
+        return (CGSize(width: totalWidth, height: totalHeight), positions, sizes)
     }
 }
 
