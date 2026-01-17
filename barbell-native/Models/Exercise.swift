@@ -2,7 +2,7 @@ import Foundation
 
 struct Exercise: Codable, Identifiable, Hashable {
     let id: UUID
-    let userId: UUID
+    let userId: UUID?  // Optional for global/shared exercises
     let name: String
     let category: String?
     let isBodyweight: Bool
