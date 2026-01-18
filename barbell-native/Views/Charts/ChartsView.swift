@@ -25,67 +25,48 @@ struct ChartsView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: AppSpacing.md) {
-                // Exercise & Metric Selection
-                List {
-                    Section {
-                        exercisePicker
+        List {
+            // Exercise, Metric & Time Range Selection
+            Section {
+                exercisePicker
 
-                        Picker("Metric", selection: $selectedMetric) {
-                            ForEach(ChartMetric.allCases) { metric in
-                                Text(metric.rawValue).tag(metric)
-                            }
-                        }
+                Picker("Metric", selection: $selectedMetric) {
+                    ForEach(ChartMetric.allCases) { metric in
+                        Text(metric.rawValue).tag(metric)
                     }
                 }
-                .listStyle(.insetGrouped)
-                .scrollDisabled(true)
-                .frame(height: 150)
 
-                // Time range picker
                 Picker("Time Range", selection: $selectedTimeRange) {
                     ForEach(ChartTimeRange.allCases) { range in
                         Text(range.rawValue).tag(range)
                     }
                 }
                 .pickerStyle(.segmented)
-                .padding(.horizontal, AppSpacing.md)
+            }
 
-                // Chart
+            // Chart
+            Section {
                 if selectedExerciseId == nil {
                     emptyState
-                        .padding(.top, AppSpacing.lg)
                 } else if chartService.isLoading {
                     loadingState
-                        .padding(.top, AppSpacing.lg)
                 } else if chartData.isEmpty {
                     noDataState
-                        .padding(.top, AppSpacing.lg)
                 } else {
-                    VStack(alignment: .leading, spacing: AppSpacing.sm) {
-                        Text("Progression")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, AppSpacing.md)
+                    chartView
+                }
+            }
 
-                        chartView
-                            .padding(.horizontal, AppSpacing.md)
-
-                        if !chartData.isEmpty {
-                            Divider()
-                                .padding(.horizontal, AppSpacing.md)
-                                .padding(.top, AppSpacing.sm)
-
-                            statsSummaryOutsideList
-                                .padding(.horizontal, AppSpacing.md)
-                                .padding(.bottom, AppSpacing.md)
-                        }
-                    }
+            // Stats summary
+            if !chartData.isEmpty {
+                Section {
+                    statsSummary
+                } header: {
+                    Text("Summary")
                 }
             }
         }
-        .background(Color(UIColor.systemGroupedBackground))
+        .listStyle(.insetGrouped)
         .navigationTitle("Charts")
         .onChange(of: selectedExerciseId) {
             Task { await fetchChartData() }
@@ -246,8 +227,8 @@ struct ChartsView: View {
         )
     }
 
-    private var statsSummaryOutsideList: some View {
-        VStack(spacing: AppSpacing.sm) {
+    private var statsSummary: some View {
+        Group {
             if let minValue = chartData.map({ $0.value }).min(),
                let maxValue = chartData.map({ $0.value }).max(),
                let firstValue = chartData.first?.value,
