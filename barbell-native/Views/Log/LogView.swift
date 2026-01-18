@@ -14,7 +14,6 @@ struct LogView: View {
     @State private var notes: String = ""
 
     // UI state
-    @State private var showingExercisePicker = false
     @State private var showingSuccess = false
     @State private var setToEdit: WorkoutSet?
 
@@ -50,9 +49,7 @@ struct LogView: View {
         List {
             // Exercise Selection
             Section {
-                exercisePickerButton
-            } header: {
-                Text("Exercise")
+                exercisePicker
             }
 
             // Weight & Reps
@@ -84,12 +81,6 @@ struct LogView: View {
         .listStyle(.insetGrouped)
         .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Log")
-        .sheet(isPresented: $showingExercisePicker) {
-            ExercisePickerSheet(
-                exercises: logService.exercises,
-                selectedId: $selectedExerciseId
-            )
-        }
         .sheet(item: $setToEdit) { set in
             EditSetSheet(set: set, logService: logService)
         }
@@ -104,20 +95,16 @@ struct LogView: View {
 
     // MARK: - Subviews
 
-    private var exercisePickerButton: some View {
-        Button {
-            showingExercisePicker = true
-        } label: {
-            HStack {
-                Text(selectedExercise?.name ?? "Select Exercise")
-                    .foregroundStyle(selectedExercise == nil ? .secondary : .primary)
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.footnote)
-                    .foregroundStyle(.tertiary)
+    private var exercisePicker: some View {
+        Picker("Exercise", selection: $selectedExerciseId) {
+            Text("Select Exercise")
+                .tag(nil as UUID?)
+
+            ForEach(logService.exercises) { exercise in
+                Text(exercise.name)
+                    .tag(exercise.id as UUID?)
             }
         }
-        .foregroundStyle(.primary)
     }
 
     private var weightInput: some View {
@@ -433,70 +420,6 @@ struct EditSetSheet: View {
             dismiss()
         }
         isSaving = false
-    }
-}
-
-// MARK: - Exercise Picker Sheet
-
-struct ExercisePickerSheet: View {
-    let exercises: [Exercise]
-    @Binding var selectedId: UUID?
-    @Environment(\.dismiss) private var dismiss
-    @State private var searchText = ""
-
-    private var filteredExercises: [Exercise] {
-        if searchText.isEmpty {
-            return exercises
-        }
-        return exercises.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText)
-        }
-    }
-
-    var body: some View {
-        NavigationStack {
-            List(filteredExercises) { exercise in
-                Button {
-                    selectedId = exercise.id
-                    dismiss()
-                } label: {
-                    HStack {
-                        Text(exercise.name)
-                            .foregroundStyle(.primary)
-
-                        Spacer()
-
-                        if let shortName = exercise.shortName {
-                            Text(shortName)
-                                .font(.caption)
-                                .fontWeight(.medium)
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(Color(.systemGray5))
-                                )
-                        }
-
-                        if selectedId == exercise.id {
-                            Image(systemName: "checkmark")
-                                .foregroundStyle(.tint)
-                        }
-                    }
-                }
-            }
-            .navigationTitle("Select Exercise")
-            .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $searchText, prompt: "Search exercises")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-            }
-        }
     }
 }
 

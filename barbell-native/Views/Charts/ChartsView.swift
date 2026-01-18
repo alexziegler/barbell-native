@@ -12,7 +12,6 @@ struct ChartsView: View {
     @State private var selectedTimeRange: ChartTimeRange = .threeMonths
 
     // UI state
-    @State private var showingExercisePicker = false
     @State private var selectedDataPoint: ChartDataPoint?
     @State private var selectedDate: Date?
 
@@ -26,22 +25,23 @@ struct ChartsView: View {
     }
 
     var body: some View {
-        List {
-            // Exercise Selector
-            Section {
-                exercisePickerButton
-            } header: {
-                Text("Exercise")
-            }
+        ScrollView {
+            VStack(spacing: AppSpacing.md) {
+                // Exercise & Metric Selection
+                List {
+                    Section {
+                        exercisePicker
 
-            // Filters
-            Section {
-                // Metric picker
-                Picker("Metric", selection: $selectedMetric) {
-                    ForEach(ChartMetric.allCases) { metric in
-                        Text(metric.rawValue).tag(metric)
+                        Picker("Metric", selection: $selectedMetric) {
+                            ForEach(ChartMetric.allCases) { metric in
+                                Text(metric.rawValue).tag(metric)
+                            }
+                        }
                     }
                 }
+                .listStyle(.insetGrouped)
+                .scrollDisabled(true)
+                .frame(height: 150)
 
                 // Time range picker
                 Picker("Time Range", selection: $selectedTimeRange) {
@@ -50,42 +50,43 @@ struct ChartsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-            } header: {
-                Text("Filters")
-            }
+                .padding(.horizontal, AppSpacing.md)
 
-            // Chart
-            Section {
+                // Chart
                 if selectedExerciseId == nil {
                     emptyState
+                        .padding(.top, AppSpacing.lg)
                 } else if chartService.isLoading {
                     loadingState
+                        .padding(.top, AppSpacing.lg)
                 } else if chartData.isEmpty {
                     noDataState
+                        .padding(.top, AppSpacing.lg)
                 } else {
-                    chartView
-                }
-            } header: {
-                Text("Progression")
-            }
+                    VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                        Text("Progression")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, AppSpacing.md)
 
-            // Stats summary
-            if !chartData.isEmpty {
-                Section {
-                    statsSummary
-                } header: {
-                    Text("Summary")
+                        chartView
+                            .padding(.horizontal, AppSpacing.md)
+
+                        if !chartData.isEmpty {
+                            Divider()
+                                .padding(.horizontal, AppSpacing.md)
+                                .padding(.top, AppSpacing.sm)
+
+                            statsSummaryOutsideList
+                                .padding(.horizontal, AppSpacing.md)
+                                .padding(.bottom, AppSpacing.md)
+                        }
+                    }
                 }
             }
         }
-        .listStyle(.insetGrouped)
+        .background(Color(UIColor.systemGroupedBackground))
         .navigationTitle("Charts")
-        .sheet(isPresented: $showingExercisePicker) {
-            ExercisePickerSheet(
-                exercises: chartService.exercises,
-                selectedId: $selectedExerciseId
-            )
-        }
         .onChange(of: selectedExerciseId) {
             Task { await fetchChartData() }
         }
@@ -99,20 +100,16 @@ struct ChartsView: View {
 
     // MARK: - Subviews
 
-    private var exercisePickerButton: some View {
-        Button {
-            showingExercisePicker = true
-        } label: {
-            HStack {
-                Text(selectedExercise?.name ?? "Select Exercise")
-                    .foregroundStyle(selectedExercise == nil ? .secondary : .primary)
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.footnote)
-                    .foregroundStyle(.tertiary)
+    private var exercisePicker: some View {
+        Picker("Exercise", selection: $selectedExerciseId) {
+            Text("Select Exercise")
+                .tag(nil as UUID?)
+
+            ForEach(chartService.exercises) { exercise in
+                Text(exercise.name)
+                    .tag(exercise.id as UUID?)
             }
         }
-        .foregroundStyle(.primary)
     }
 
     private var emptyState: some View {
@@ -249,8 +246,8 @@ struct ChartsView: View {
         )
     }
 
-    private var statsSummary: some View {
-        Group {
+    private var statsSummaryOutsideList: some View {
+        VStack(spacing: AppSpacing.sm) {
             if let minValue = chartData.map({ $0.value }).min(),
                let maxValue = chartData.map({ $0.value }).max(),
                let firstValue = chartData.first?.value,
