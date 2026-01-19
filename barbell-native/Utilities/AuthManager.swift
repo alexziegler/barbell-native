@@ -29,22 +29,29 @@ final class AuthManager {
     }
 
     init() {
+        // Check for existing session synchronously to avoid flash of login screen
+        if let session = supabaseClient.auth.currentSession, !session.isExpired {
+            authState = .authenticated(session.user)
+        }
+
         Task {
             await initialize()
         }
     }
 
     private func initialize() async {
-        // With emitLocalSessionAsInitialSession: true, we can rely on the authStateChanges stream
-        // to emit the initial session properly
+        // Listen for auth state changes (sign in, sign out, token refresh)
         authStateTask = Task {
             for await (event, session) in supabaseClient.auth.authStateChanges {
                 switch event {
                 case .initialSession:
-                    if let session = session, !session.isExpired {
-                        authState = .authenticated(session.user)
-                    } else {
-                        authState = .unauthenticated
+                    // Only update if we haven't already set state from stored session
+                    if case .loading = authState {
+                        if let session = session, !session.isExpired {
+                            authState = .authenticated(session.user)
+                        } else {
+                            authState = .unauthenticated
+                        }
                     }
                 case .signedIn:
                     if let user = session?.user {

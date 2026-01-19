@@ -33,6 +33,61 @@ struct NewSet: Codable {
     }
 }
 
+/// Input for creating a new exercise
+struct NewExercise: Codable {
+    let name: String
+    let shortName: String?
+    let userId: UUID
+    let isBodyweight: Bool
+    let category: String?
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case shortName = "short_name"
+        case userId = "user_id"
+        case isBodyweight = "is_bodyweight"
+        case category
+    }
+}
+
+/// Result from PR upsert RPC call
+struct PRResult: Codable {
+    let newWeight: Bool
+    let new1rm: Bool
+    let newVolume: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case newWeight = "new_weight"
+        case new1rm = "new_1rm"
+        case newVolume = "new_volume"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        newWeight = (try? container.decode(Bool.self, forKey: .newWeight)) ?? false
+        new1rm = (try? container.decode(Bool.self, forKey: .new1rm)) ?? false
+        newVolume = (try? container.decode(Bool.self, forKey: .newVolume)) ?? false
+    }
+
+    var hasAnyPR: Bool {
+        newWeight || new1rm || newVolume
+    }
+
+    var prTypes: [String] {
+        var types: [String] = []
+        if newWeight { types.append("Heaviest") }
+        if new1rm { types.append("Best 1RM") }
+        if newVolume { types.append("Best Volume") }
+        return types
+    }
+}
+
+/// Result from logging a set, including PR info
+struct LogSetResult {
+    let set: WorkoutSet
+    let prResult: PRResult?
+}
+
 @Observable
 final class LogService {
     private(set) var exercises: [Exercise] = []
@@ -89,7 +144,7 @@ final class LogService {
         }
     }
 
-    /// Logs a new set
+    /// Logs a new set and checks for PRs
     func logSet(
         exerciseId: UUID,
         weight: Double,
@@ -98,7 +153,7 @@ final class LogService {
         notes: String?,
         failed: Bool,
         userId: UUID
-    ) async -> Bool {
+    ) async -> LogSetResult? {
         await MainActor.run {
             self.isSaving = true
         }
@@ -127,13 +182,45 @@ final class LogService {
                 self.todaysSets.insert(savedSet, at: 0)
                 self.isSaving = false
             }
-            return true
+
+            // Check for PRs after inserting the set
+            let prResult = await upsertPRForSet(savedSet.id)
+
+            // Recompute all PRs to ensure consistency
+            await recomputePRs()
+
+            return LogSetResult(set: savedSet, prResult: prResult)
         } catch {
             await MainActor.run {
                 self.error = error
                 self.isSaving = false
             }
-            return false
+            return nil
+        }
+    }
+
+    /// Calls the RPC function to check/upsert PR for a specific set
+    private func upsertPRForSet(_ setId: UUID) async -> PRResult? {
+        do {
+            let result: PRResult = try await supabaseClient
+                .rpc("upsert_pr_for_set", params: ["p_set_id": setId.uuidString.lowercased()])
+                .execute()
+                .value
+            return result
+        } catch {
+            print("Failed to upsert PR for set: \(error)")
+            return nil
+        }
+    }
+
+    /// Calls the RPC function to recompute all PRs
+    func recomputePRs() async {
+        do {
+            try await supabaseClient
+                .rpc("recompute_prs")
+                .execute()
+        } catch {
+            print("Failed to recompute PRs: \(error)")
         }
     }
 
@@ -159,6 +246,10 @@ final class LogService {
             await MainActor.run {
                 self.todaysSets.removeAll { $0.id == set.id }
             }
+
+            // Recompute PRs since deletion can change them
+            await recomputePRs()
+
             return true
         } catch {
             await MainActor.run {
@@ -203,6 +294,10 @@ final class LogService {
                 }
                 self.isSaving = false
             }
+
+            // Recompute PRs since updates can change them
+            await recomputePRs()
+
             return true
         } catch {
             await MainActor.run {
@@ -210,6 +305,48 @@ final class LogService {
                 self.isSaving = false
             }
             return false
+        }
+    }
+
+    /// Creates a new exercise
+    func createExercise(
+        name: String,
+        shortName: String?,
+        userId: UUID
+    ) async -> Exercise? {
+        await MainActor.run {
+            self.isSaving = true
+        }
+
+        let newExercise = NewExercise(
+            name: name,
+            shortName: shortName,
+            userId: userId,
+            isBodyweight: false,
+            category: nil
+        )
+
+        do {
+            let savedExercise: Exercise = try await supabaseClient
+                .from("exercises")
+                .insert(newExercise)
+                .select()
+                .single()
+                .execute()
+                .value
+
+            await MainActor.run {
+                self.exercises.append(savedExercise)
+                self.exercises.sort { $0.name < $1.name }
+                self.isSaving = false
+            }
+            return savedExercise
+        } catch {
+            await MainActor.run {
+                self.error = error
+                self.isSaving = false
+            }
+            return nil
         }
     }
 }

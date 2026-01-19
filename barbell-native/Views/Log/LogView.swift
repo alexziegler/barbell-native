@@ -17,6 +17,11 @@ struct LogView: View {
     @State private var showingSuccess = false
     @State private var setToEdit: WorkoutSet?
 
+    // PR celebration state
+    @State private var prSetIds: Set<UUID> = []
+    @State private var showingPRCelebration = false
+    @State private var prCelebrationMessage: String = ""
+
     private var selectedExercise: Exercise? {
         guard let id = selectedExerciseId else { return nil }
         return logService.exercise(for: id)
@@ -88,8 +93,21 @@ struct LogView: View {
         .task {
             await loadData()
         }
+        .onAppear {
+            Task {
+                await logService.fetchExercises()
+            }
+        }
         .refreshable {
             await loadData()
+        }
+        .overlay {
+            if showingPRCelebration {
+                PRCelebrationOverlay(
+                    message: prCelebrationMessage,
+                    isShowing: $showingPRCelebration
+                )
+            }
         }
     }
 
@@ -141,14 +159,14 @@ struct LogView: View {
             HStack {
                 Text("RPE")
                 Spacer()
-                Text(String(format: rpe.truncatingRemainder(dividingBy: 1) == 0 ? "%.0f" : "%.1f", rpe))
+                Text(String(format: "%.0f", rpe))
                     .font(.title2)
                     .fontWeight(.bold)
                     .foregroundStyle(WorkoutDay.difficultyColor(for: rpe))
                     .monospacedDigit()
             }
 
-            GradientSlider(value: $rpe, range: 1...10, step: 0.5)
+            GradientSlider(value: $rpe, range: 1...10, step: 1)
         }
         .padding(.vertical, 4)
     }
@@ -184,7 +202,7 @@ struct LogView: View {
         ForEach(setsByExercise, id: \.exerciseId) { group in
             Section {
                 ForEach(group.sets) { set in
-                    TodaysSetRow(set: set)
+                    TodaysSetRow(set: set, hasPR: prSetIds.contains(set.id))
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                             Button(role: .destructive) {
                                 Task { await logService.deleteSet(set) }
@@ -254,7 +272,7 @@ struct LogView: View {
         guard let userId = authManager.currentUser?.id,
               let exerciseId = selectedExerciseId else { return }
 
-        let success = await logService.logSet(
+        let result = await logService.logSet(
             exerciseId: exerciseId,
             weight: weight,
             reps: reps,
@@ -264,10 +282,19 @@ struct LogView: View {
             userId: userId
         )
 
-        if success {
+        if let result = result {
             showingSuccess.toggle()
-            // Values persist - don't reset them
             notes = "" // Only clear notes
+
+            // Check if this set achieved a PR
+            if let prResult = result.prResult, prResult.hasAnyPR {
+                prSetIds.insert(result.set.id)
+                let exerciseName = selectedExercise?.name ?? "Exercise"
+                prCelebrationMessage = "\(exerciseName)\n\(prResult.prTypes.joined(separator: " & "))"
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                    showingPRCelebration = true
+                }
+            }
         }
     }
 }
@@ -276,23 +303,32 @@ struct LogView: View {
 
 struct TodaysSetRow: View {
     let set: WorkoutSet
+    var hasPR: Bool = false
 
     var body: some View {
         HStack {
+            if hasPR {
+                Text("🏆")
+                    .font(.subheadline)
+            }
+
             Text("\(formatWeight(set.weight)) kg × \(set.reps)")
                 .font(.body)
 
-            if let rpe = set.rpe {
-                Text("@\(rpe, specifier: "%.1f")")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-
             Spacer()
+
+            if let rpe = set.rpe {
+                Text(String(format: "%.0f", rpe))
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(WorkoutDay.difficultyColor(for: rpe))
+                    .frame(minWidth: 20, alignment: .trailing)
+            }
 
             Text(set.performedAt, style: .time)
                 .font(.caption)
                 .foregroundStyle(.tertiary)
+                .frame(minWidth: 55, alignment: .trailing)
         }
     }
 
@@ -372,13 +408,13 @@ struct EditSetSheet: View {
                             HStack {
                                 Text("RPE")
                                 Spacer()
-                                Text(String(format: rpe.truncatingRemainder(dividingBy: 1) == 0 ? "%.0f" : "%.1f", rpe))
+                                Text(String(format: "%.0f", rpe))
                                     .font(.title2)
                                     .fontWeight(.bold)
                                     .foregroundStyle(WorkoutDay.difficultyColor(for: rpe))
                                     .monospacedDigit()
                             }
-                            GradientSlider(value: $rpe, range: 1...10, step: 0.5)
+                            GradientSlider(value: $rpe, range: 1...10, step: 1)
                         }
                         .padding(.vertical, 4)
                     }
@@ -473,6 +509,118 @@ struct GradientSlider: View {
             }
         }
         .frame(height: thumbSize)
+    }
+}
+
+// MARK: - PR Celebration Overlay
+
+struct PRCelebrationOverlay: View {
+    let message: String
+    @Binding var isShowing: Bool
+    @State private var confettiPieces: [ConfettiPiece] = []
+
+    var body: some View {
+        ZStack {
+            // Semi-transparent background
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    withAnimation {
+                        isShowing = false
+                    }
+                }
+
+            // Confetti
+            ForEach(confettiPieces) { piece in
+                ConfettiPieceView(piece: piece)
+            }
+
+            // Celebration card
+            VStack(spacing: 16) {
+                Text("🎉")
+                    .font(.system(size: 60))
+
+                Text("New PR!")
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+                    .foregroundStyle(.white)
+
+                Text(message)
+                    .font(.title3)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.white.opacity(0.9))
+                    .multilineTextAlignment(.center)
+
+                Button {
+                    withAnimation {
+                        isShowing = false
+                    }
+                } label: {
+                    Text("Awesome!")
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.appAccent, in: RoundedRectangle(cornerRadius: 12))
+                }
+                .padding(.top, 8)
+            }
+            .padding(24)
+            .frame(maxWidth: 300)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
+        }
+        .onAppear {
+            generateConfetti()
+        }
+        .sensoryFeedback(.success, trigger: isShowing)
+    }
+
+    private func generateConfetti() {
+        let colors: [Color] = [.red, .orange, .yellow, .green, .blue, .purple, .pink, .appAccent]
+        confettiPieces = (0..<50).map { _ in
+            ConfettiPiece(
+                color: colors.randomElement()!,
+                x: CGFloat.random(in: 0...UIScreen.main.bounds.width),
+                y: -20,
+                rotation: Double.random(in: 0...360),
+                scale: CGFloat.random(in: 0.5...1.2)
+            )
+        }
+    }
+}
+
+struct ConfettiPiece: Identifiable {
+    let id = UUID()
+    let color: Color
+    var x: CGFloat
+    var y: CGFloat
+    var rotation: Double
+    var scale: CGFloat
+}
+
+struct ConfettiPieceView: View {
+    let piece: ConfettiPiece
+    @State private var finalY: CGFloat = UIScreen.main.bounds.height + 50
+    @State private var finalRotation: Double = 0
+    @State private var finalX: CGFloat = 0
+
+    var body: some View {
+        Rectangle()
+            .fill(piece.color)
+            .frame(width: 10 * piece.scale, height: 10 * piece.scale)
+            .rotationEffect(.degrees(finalRotation))
+            .position(x: finalX, y: finalY)
+            .onAppear {
+                finalX = piece.x
+                finalY = piece.y
+                finalRotation = piece.rotation
+
+                withAnimation(.easeOut(duration: Double.random(in: 2...4))) {
+                    finalY = UIScreen.main.bounds.height + 50
+                    finalX = piece.x + CGFloat.random(in: -100...100)
+                    finalRotation = piece.rotation + Double.random(in: 360...720)
+                }
+            }
     }
 }
 

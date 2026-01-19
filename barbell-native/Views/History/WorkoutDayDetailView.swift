@@ -97,10 +97,8 @@ struct SetRow: View {
                     Text(weightRepsText)
                         .font(.body)
 
-                    if let rpe = set.rpe {
-                        Text("@\(rpe, specifier: "%.1f")")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                    if hasPR {
+                        PRBadge()
                     }
 
                     if set.failed {
@@ -119,8 +117,12 @@ struct SetRow: View {
 
             Spacer()
 
-            if hasPR {
-                PRBadge()
+            if let rpe = set.rpe {
+                Text(String(format: "%.0f", rpe))
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(WorkoutDay.difficultyColor(for: rpe))
+                    .frame(minWidth: 20, alignment: .trailing)
             }
         }
         .padding(.vertical, 2)
