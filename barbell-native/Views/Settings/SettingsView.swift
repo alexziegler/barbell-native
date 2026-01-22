@@ -3,7 +3,7 @@ import Auth
 
 struct SettingsView: View {
     @Environment(AuthManager.self) private var authManager
-    @State private var logService = LogService()
+    @Environment(LogService.self) private var logService
     @State private var showingSignOutConfirmation = false
     @State private var showingAddExercise = false
     @State private var showingExerciseAdded = false
@@ -62,10 +62,11 @@ struct SettingsView: View {
         .sheet(isPresented: $showingAddExercise) {
             if let userId = authManager.currentUser?.id {
                 AddExerciseSheet(
-                    logService: logService,
                     userId: userId,
                     onSuccess: {
                         showingExerciseAdded = true
+                        // Sync exercises to Watch
+                        WatchSessionManager.shared.sendExercisesToWatch()
                     }
                 )
             }
@@ -139,4 +140,5 @@ struct SettingsToast: View {
         SettingsView()
     }
     .environment(AuthManager())
+    .environment(LogService())
 }

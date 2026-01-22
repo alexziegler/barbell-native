@@ -3,7 +3,7 @@ import SwiftUI
 
 struct LogView: View {
     @Environment(AuthManager.self) private var authManager
-    @State private var logService = LogService()
+    @Environment(LogService.self) private var logService
 
     // Input state - persists between logs
     @State private var selectedExerciseId: UUID?
@@ -295,6 +295,9 @@ struct LogView: View {
                     showingPRCelebration = true
                 }
             }
+
+            // Sync to Watch
+            WatchSessionManager.shared.sendTodaysSetsToWatch()
         }
     }
 }
@@ -634,5 +637,6 @@ struct ConfettiPieceView: View {
     NavigationStack {
         LogView()
             .environment(AuthManager())
+            .environment(LogService())
     }
 }

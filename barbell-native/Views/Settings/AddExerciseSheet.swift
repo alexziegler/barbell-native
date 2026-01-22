@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct AddExerciseSheet: View {
-    let logService: LogService
+    @Environment(LogService.self) private var logService
     let userId: UUID
     let onSuccess: () -> Void
 
@@ -73,8 +73,8 @@ struct AddExerciseSheet: View {
 
 #Preview {
     AddExerciseSheet(
-        logService: LogService(),
         userId: UUID(),
         onSuccess: {}
     )
+    .environment(LogService())
 }
