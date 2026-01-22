@@ -84,7 +84,7 @@ struct LogView: View {
             todaysSetsSection
         }
         .listStyle(.insetGrouped)
-        .scrollDismissesKeyboard(.interactively)
+        .scrollDismissesKeyboard(.immediately)
         .navigationTitle("Log")
         .sheet(item: $setToEdit) { set in
             EditSetSheet(set: set, logService: logService)
@@ -424,6 +424,7 @@ struct EditSetSheet: View {
             }
             .navigationTitle("Edit Set")
             .navigationBarTitleDisplayMode(.inline)
+            .scrollDismissesKeyboard(.immediately)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -471,7 +472,7 @@ struct GradientSlider: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let width = geometry.size.width - thumbSize
+            let width = max(0, geometry.size.width - thumbSize)
             let percentage = (value - range.lowerBound) / (range.upperBound - range.lowerBound)
             let thumbX = width * percentage
 
@@ -518,69 +519,73 @@ struct PRCelebrationOverlay: View {
     let message: String
     @Binding var isShowing: Bool
     @State private var confettiPieces: [ConfettiPiece] = []
+    @State private var containerSize: CGSize = .zero
 
     var body: some View {
-        ZStack {
-            // Semi-transparent background
-            Color.black.opacity(0.4)
-                .ignoresSafeArea()
-                .onTapGesture {
-                    withAnimation {
-                        isShowing = false
+        GeometryReader { geometry in
+            ZStack {
+                // Semi-transparent background
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        withAnimation {
+                            isShowing = false
+                        }
                     }
+
+                // Confetti
+                ForEach(confettiPieces) { piece in
+                    ConfettiPieceView(piece: piece, containerHeight: geometry.size.height)
                 }
 
-            // Confetti
-            ForEach(confettiPieces) { piece in
-                ConfettiPieceView(piece: piece)
-            }
+                // Celebration card
+                VStack(spacing: 16) {
+                    Text("🎉")
+                        .font(.system(size: 60))
 
-            // Celebration card
-            VStack(spacing: 16) {
-                Text("🎉")
-                    .font(.system(size: 60))
-
-                Text("New PR!")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
-                    .foregroundStyle(.white)
-
-                Text(message)
-                    .font(.title3)
-                    .fontWeight(.medium)
-                    .foregroundStyle(.white.opacity(0.9))
-                    .multilineTextAlignment(.center)
-
-                Button {
-                    withAnimation {
-                        isShowing = false
-                    }
-                } label: {
-                    Text("Awesome!")
-                        .fontWeight(.semibold)
+                    Text("New PR!")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
                         .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(Color.appAccent, in: RoundedRectangle(cornerRadius: 12))
+
+                    Text(message)
+                        .font(.title3)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.white.opacity(0.9))
+                        .multilineTextAlignment(.center)
+
+                    Button {
+                        withAnimation {
+                            isShowing = false
+                        }
+                    } label: {
+                        Text("Awesome!")
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(Color.appAccent, in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    .padding(.top, 8)
                 }
-                .padding(.top, 8)
+                .padding(24)
+                .frame(maxWidth: 300)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
             }
-            .padding(24)
-            .frame(maxWidth: 300)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
-        }
-        .onAppear {
-            generateConfetti()
+            .onAppear {
+                containerSize = geometry.size
+                generateConfetti(in: geometry.size)
+            }
         }
         .sensoryFeedback(.success, trigger: isShowing)
     }
 
-    private func generateConfetti() {
+    private func generateConfetti(in size: CGSize) {
         let colors: [Color] = [.red, .orange, .yellow, .green, .blue, .purple, .pink, .appAccent]
         confettiPieces = (0..<50).map { _ in
             ConfettiPiece(
                 color: colors.randomElement()!,
-                x: CGFloat.random(in: 0...UIScreen.main.bounds.width),
+                x: CGFloat.random(in: 0...size.width),
                 y: -20,
                 rotation: Double.random(in: 0...360),
                 scale: CGFloat.random(in: 0.5...1.2)
@@ -600,7 +605,8 @@ struct ConfettiPiece: Identifiable {
 
 struct ConfettiPieceView: View {
     let piece: ConfettiPiece
-    @State private var finalY: CGFloat = UIScreen.main.bounds.height + 50
+    let containerHeight: CGFloat
+    @State private var finalY: CGFloat = -20
     @State private var finalRotation: Double = 0
     @State private var finalX: CGFloat = 0
 
@@ -616,7 +622,7 @@ struct ConfettiPieceView: View {
                 finalRotation = piece.rotation
 
                 withAnimation(.easeOut(duration: Double.random(in: 2...4))) {
-                    finalY = UIScreen.main.bounds.height + 50
+                    finalY = containerHeight + 50
                     finalX = piece.x + CGFloat.random(in: -100...100)
                     finalRotation = piece.rotation + Double.random(in: 360...720)
                 }

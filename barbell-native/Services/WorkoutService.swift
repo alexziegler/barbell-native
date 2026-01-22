@@ -207,6 +207,85 @@ final class WorkoutService {
         return s + b + d
     }
 
+    /// Deletes a set
+    func deleteSet(_ set: WorkoutSet) async -> Bool {
+        do {
+            try await supabaseClient
+                .from("sets")
+                .delete()
+                .eq("id", value: set.id.uuidString)
+                .execute()
+
+            await MainActor.run {
+                self.sets.removeAll { $0.id == set.id }
+            }
+
+            // Recompute PRs since deletion can change them
+            await recomputePRs()
+
+            return true
+        } catch {
+            await MainActor.run {
+                self.error = error
+            }
+            return false
+        }
+    }
+
+    /// Updates an existing set
+    func updateSet(
+        _ set: WorkoutSet,
+        weight: Double,
+        reps: Int,
+        rpe: Double?,
+        notes: String?
+    ) async -> Bool {
+        do {
+            let updateData = UpdateSet(
+                weight: weight,
+                reps: reps,
+                rpe: rpe,
+                notes: notes
+            )
+
+            let updatedSet: WorkoutSet = try await supabaseClient
+                .from("sets")
+                .update(updateData)
+                .eq("id", value: set.id.uuidString)
+                .select()
+                .single()
+                .execute()
+                .value
+
+            await MainActor.run {
+                if let index = self.sets.firstIndex(where: { $0.id == set.id }) {
+                    self.sets[index] = updatedSet
+                }
+            }
+
+            // Recompute PRs since updates can change them
+            await recomputePRs()
+
+            return true
+        } catch {
+            await MainActor.run {
+                self.error = error
+            }
+            return false
+        }
+    }
+
+    /// Calls the RPC function to recompute all PRs
+    private func recomputePRs() async {
+        do {
+            try await supabaseClient
+                .rpc("recompute_prs")
+                .execute()
+        } catch {
+            print("Failed to recompute PRs: \(error)")
+        }
+    }
+
     /// Filters workout days to only include sets for a specific exercise
     func getWorkoutDays(filteredBy exerciseId: UUID?) -> [WorkoutDay] {
         guard let exerciseId = exerciseId else {

@@ -4,6 +4,8 @@ struct WorkoutDayDetailView: View {
     let workoutDay: WorkoutDay
     let workoutService: WorkoutService
 
+    @State private var setToEdit: WorkoutSet?
+
     var body: some View {
         List {
             // Summary section with difficulty
@@ -22,6 +24,21 @@ struct WorkoutDayDetailView: View {
                 Section {
                     ForEach(exerciseGroup.sets) { set in
                         SetRow(set: set, hasPR: workoutService.hasPR(setId: set.id))
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    Task { await workoutService.deleteSet(set) }
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                Button {
+                                    setToEdit = set
+                                } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+                                .tint(.appAccent)
+                            }
                     }
                 } header: {
                     ExerciseSectionHeader(
@@ -34,6 +51,128 @@ struct WorkoutDayDetailView: View {
         .listStyle(.insetGrouped)
         .navigationTitle(workoutDay.formattedDateWithYear)
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $setToEdit) { set in
+            HistoryEditSetSheet(set: set, workoutService: workoutService)
+        }
+    }
+}
+
+// MARK: - History Edit Set Sheet
+
+struct HistoryEditSetSheet: View {
+    let set: WorkoutSet
+    let workoutService: WorkoutService
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var weightText: String
+    @State private var reps: Int
+    @State private var rpe: Double
+    @State private var includeRPE: Bool
+    @State private var isSaving = false
+
+    init(set: WorkoutSet, workoutService: WorkoutService) {
+        self.set = set
+        self.workoutService = workoutService
+        _weightText = State(initialValue: set.weight.truncatingRemainder(dividingBy: 1) == 0
+            ? String(format: "%.0f", set.weight)
+            : String(format: "%.1f", set.weight))
+        _reps = State(initialValue: set.reps)
+        _rpe = State(initialValue: set.rpe ?? 5)
+        _includeRPE = State(initialValue: set.rpe != nil)
+    }
+
+    private var weight: Double {
+        Double(weightText.replacingOccurrences(of: ",", with: ".")) ?? 0
+    }
+
+    private var canSave: Bool {
+        weight > 0 && reps > 0
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    HStack {
+                        Text("Weight")
+                        Spacer()
+                        TextField("0", text: $weightText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 80)
+                        Text("kg")
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Stepper(value: $reps, in: 1...100) {
+                        HStack {
+                            Text("Reps")
+                            Spacer()
+                            Text("\(reps)")
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                    }
+                } header: {
+                    Text("Set Details")
+                }
+
+                Section {
+                    Toggle("Log RPE", isOn: $includeRPE)
+                    if includeRPE {
+                        VStack(spacing: 12) {
+                            HStack {
+                                Text("RPE")
+                                Spacer()
+                                Text(String(format: "%.0f", rpe))
+                                    .font(.title2)
+                                    .fontWeight(.bold)
+                                    .foregroundStyle(WorkoutDay.difficultyColor(for: rpe))
+                                    .monospacedDigit()
+                            }
+                            GradientSlider(value: $rpe, range: 1...10, step: 1)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                } header: {
+                    Text("Difficulty (RPE)")
+                }
+            }
+            .navigationTitle("Edit Set")
+            .navigationBarTitleDisplayMode(.inline)
+            .scrollDismissesKeyboard(.immediately)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        Task {
+                            await saveChanges()
+                        }
+                    }
+                    .fontWeight(.semibold)
+                    .disabled(!canSave || isSaving)
+                }
+            }
+        }
+    }
+
+    private func saveChanges() async {
+        isSaving = true
+        let success = await workoutService.updateSet(
+            set,
+            weight: weight,
+            reps: reps,
+            rpe: includeRPE ? rpe : nil,
+            notes: set.notes
+        )
+        if success {
+            dismiss()
+        }
+        isSaving = false
     }
 }
 
