@@ -4,16 +4,14 @@ struct TodaySummaryView: View {
     @Environment(WatchSessionManager.self) private var sessionManager
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if sessionManager.todaysSets.isEmpty {
-                    emptyStateView
-                } else {
-                    summaryListView
-                }
+        Group {
+            if sessionManager.todaysSets.isEmpty {
+                emptyStateView
+            } else {
+                summaryListView
             }
-            .navigationTitle("Today")
         }
+        .navigationTitle("Today")
     }
 
     // MARK: - Empty State

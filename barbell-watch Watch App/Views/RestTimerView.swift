@@ -2,58 +2,44 @@ import SwiftUI
 import WatchKit
 
 struct RestTimerView: View {
-    @State private var selectedDuration: TimeInterval = 90
-    @State private var remainingTime: TimeInterval = 0
-    @State private var isRunning = false
-    @State private var timer: Timer?
-
     private let presetDurations: [(label: String, seconds: TimeInterval)] = [
-        ("1:00", 60),
-        ("1:30", 90),
         ("2:00", 120),
         ("3:00", 180),
+        ("4:00", 240),
         ("5:00", 300)
     ]
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: WatchSpacing.md) {
-                if isRunning {
-                    runningTimerView
-                } else {
-                    presetSelectionView
-                }
+        List(presetDurations, id: \.seconds) { preset in
+            NavigationLink {
+                RunningTimerView(duration: preset.seconds)
+            } label: {
+                Text(preset.label)
+                    .font(.watchMediumNumber)
             }
-            .navigationTitle("Rest Timer")
         }
+        .navigationTitle("Timer")
+    }
+}
+
+// MARK: - Running Timer View
+
+struct RunningTimerView: View {
+    @Environment(\.dismiss) private var dismiss
+    let duration: TimeInterval
+
+    @State private var selectedDuration: TimeInterval
+    @State private var remainingTime: TimeInterval
+    @State private var timer: Timer?
+
+    init(duration: TimeInterval) {
+        self.duration = duration
+        self._selectedDuration = State(initialValue: duration)
+        self._remainingTime = State(initialValue: duration)
     }
 
-    // MARK: - Preset Selection
-
-    private var presetSelectionView: some View {
-        ScrollView {
-            VStack(spacing: WatchSpacing.sm) {
-                ForEach(presetDurations, id: \.seconds) { preset in
-                    Button {
-                        startTimer(duration: preset.seconds)
-                    } label: {
-                        Text(preset.label)
-                            .font(.watchMediumNumber)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, WatchSpacing.sm)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.watchAccent)
-                }
-            }
-            .padding()
-        }
-    }
-
-    // MARK: - Running Timer
-
-    private var runningTimerView: some View {
-        VStack(spacing: WatchSpacing.md) {
+    var body: some View {
+        VStack(spacing: WatchSpacing.sm) {
             // Circular progress
             ZStack {
                 Circle()
@@ -65,40 +51,43 @@ struct RestTimerView: View {
                     .rotationEffect(.degrees(-90))
                     .animation(.linear(duration: 0.1), value: progress)
 
-                VStack {
+                VStack(spacing: 2) {
                     Text(timeString)
                         .font(.watchLargeNumber)
                         .monospacedDigit()
-
-                    Text("remaining")
-                        .font(.watchCaption)
-                        .foregroundColor(.secondary)
                 }
             }
-            .frame(width: 120, height: 120)
+            .frame(width: 130, height: 130)
 
-            HStack(spacing: WatchSpacing.md) {
-                // +30s button
-                Button {
-                    addTime(30)
-                } label: {
-                    Text("+30s")
-                        .font(.watchCaption)
-                }
-                .buttonStyle(.bordered)
-                .tint(.watchAccent)
-
-                // Cancel button
+            // +30s button below the timer
+            Button {
+                addTime(30)
+            } label: {
+                Text("+30s")
+                    .font(.watchBody)
+            }
+            .buttonStyle(.bordered)
+            .tint(.watchAccent)
+        }
+        .navigationTitle(formatDuration(duration))
+        .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
                 Button {
                     stopTimer()
+                    dismiss()
                 } label: {
                     Image(systemName: "xmark")
                 }
-                .buttonStyle(.bordered)
                 .tint(.red)
             }
         }
-        .padding()
+        .onAppear {
+            startTimer()
+        }
+        .onDisappear {
+            timer?.invalidate()
+        }
     }
 
     // MARK: - Computed Properties
@@ -124,14 +113,18 @@ struct RestTimerView: View {
         }
     }
 
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        let minutes = Int(seconds) / 60
+        let secs = Int(seconds) % 60
+        if secs == 0 {
+            return "\(minutes) min"
+        }
+        return "\(minutes):\(String(format: "%02d", secs))"
+    }
+
     // MARK: - Timer Actions
 
-    private func startTimer(duration: TimeInterval) {
-        selectedDuration = duration
-        remainingTime = duration
-        isRunning = true
-
-        // Haptic to indicate start
+    private func startTimer() {
         WKInterfaceDevice.current().play(.start)
 
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
@@ -142,16 +135,12 @@ struct RestTimerView: View {
     private func stopTimer() {
         timer?.invalidate()
         timer = nil
-        isRunning = false
-        remainingTime = 0
-
         WKInterfaceDevice.current().play(.stop)
     }
 
     private func addTime(_ seconds: TimeInterval) {
         remainingTime += seconds
         selectedDuration += seconds
-
         WKInterfaceDevice.current().play(.click)
     }
 
@@ -180,18 +169,20 @@ struct RestTimerView: View {
         // Strong haptic for completion
         WKInterfaceDevice.current().play(.notification)
 
-        // Brief delay then reset
+        // Brief delay then dismiss
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             WKInterfaceDevice.current().play(.notification)
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 WKInterfaceDevice.current().play(.notification)
-                isRunning = false
+                dismiss()
             }
         }
     }
 }
 
 #Preview {
-    RestTimerView()
+    NavigationStack {
+        RestTimerView()
+    }
 }
