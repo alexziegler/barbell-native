@@ -45,8 +45,15 @@ struct QuickLogView: View {
             NavigationLink {
                 WeightInputView(exercise: exercise)
             } label: {
-                Text(exercise.displayName)
-                    .font(.watchBody)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(exercise.displayName)
+                        .font(.watchBody)
+                    if exercise.shortName != nil {
+                        Text(exercise.name)
+                            .font(.watchCaption)
+                            .foregroundColor(.secondary)
+                    }
+                }
             }
         }
     }
@@ -60,6 +67,7 @@ struct WeightInputView: View {
 
     @State private var weight: Double = 60.0
     @State private var showWeightPad = false
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         VStack(spacing: WatchSpacing.md) {
@@ -85,6 +93,7 @@ struct WeightInputView: View {
                 } label: {
                     Text(String(format: "%.1f", weight))
                         .font(.watchLargeNumber)
+                        .monospacedDigit()
                         .frame(minWidth: 80)
                 }
                 .buttonStyle(.plain)
@@ -110,9 +119,21 @@ struct WeightInputView: View {
             .buttonStyle(.borderedProminent)
             .tint(.watchAccent)
         }
+        .focusable()
+        .focused($isFocused)
+        .digitalCrownRotation(
+            $weight,
+            from: 0,
+            through: 500,
+            by: 0.5,
+            sensitivity: .medium,
+            isContinuous: false,
+            isHapticFeedbackEnabled: true
+        )
         .navigationTitle(exercise.shortName ?? exercise.name)
         .onAppear {
             loadLastSet()
+            isFocused = true
         }
         .sheet(isPresented: $showWeightPad) {
             WatchNumberPad(value: $weight, range: 0...500)
@@ -120,8 +141,8 @@ struct WeightInputView: View {
     }
 
     private func loadLastSet() {
-        if let lastSet = sessionManager.sets(for: exercise.id).first {
-            weight = lastSet.weight
+        if let lastWeight = sessionManager.lastWeight(for: exercise.id) {
+            weight = lastWeight
         }
     }
 }
@@ -133,122 +154,188 @@ struct RepsInputView: View {
     let exercise: WatchExercise
     let weight: Double
 
-    @State private var reps: Int = 5
-    @State private var rpe: Double?
-    @State private var showRPE = false
+    @State private var reps: Double = 5
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         VStack(spacing: WatchSpacing.md) {
-            WatchIntStepperRow(
-                label: "Reps",
-                value: $reps,
-                step: 1,
-                range: 1...100
-            )
+            Text("Reps")
+                .font(.watchCaption)
+                .foregroundColor(.secondary)
+
+            HStack {
+                Button {
+                    if reps > 1 {
+                        reps -= 1
+                    }
+                } label: {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.title2)
+                        .foregroundColor(.watchAccent)
+                }
+                .buttonStyle(.plain)
+
+                Text("\(Int(reps))")
+                    .font(.watchLargeNumber)
+                    .monospacedDigit()
+                    .frame(minWidth: 60)
+
+                Button {
+                    if reps < 100 {
+                        reps += 1
+                    }
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title2)
+                        .foregroundColor(.watchAccent)
+                }
+                .buttonStyle(.plain)
+            }
 
             NavigationLink {
-                ConfirmSetView(
-                    exercise: exercise,
-                    weight: weight,
-                    reps: reps,
-                    rpe: showRPE ? (rpe ?? 7.0) : nil
-                )
+                RPEInputView(exercise: exercise, weight: weight, reps: Int(reps))
             } label: {
                 Text("Next")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .tint(.watchAccent)
-
-            Toggle("Add RPE", isOn: $showRPE)
-                .font(.watchCaption)
-
-            if showRPE {
-                WatchStepperRow(
-                    label: "RPE",
-                    value: Binding(
-                        get: { rpe ?? 7.0 },
-                        set: { rpe = $0 }
-                    ),
-                    step: 0.5,
-                    range: 5...10,
-                    format: "%.1f"
-                )
-            }
         }
-        .navigationTitle("Reps")
+        .focusable()
+        .focused($isFocused)
+        .digitalCrownRotation(
+            $reps,
+            from: 1,
+            through: 100,
+            by: 1,
+            sensitivity: .medium,
+            isContinuous: false,
+            isHapticFeedbackEnabled: true
+        )
+        .navigationTitle(exercise.shortName ?? exercise.name)
         .onAppear {
             loadLastSet()
+            isFocused = true
         }
     }
 
     private func loadLastSet() {
         if let lastSet = sessionManager.sets(for: exercise.id).first {
-            reps = lastSet.reps
-            rpe = lastSet.rpe
-            showRPE = lastSet.rpe != nil
+            reps = Double(lastSet.reps)
         }
     }
 }
 
-// MARK: - Confirm Set View
+// MARK: - RPE Input View
 
-struct ConfirmSetView: View {
+struct RPEInputView: View {
     @Environment(WatchSessionManager.self) private var sessionManager
     @Environment(\.dismiss) private var dismiss
     let exercise: WatchExercise
     let weight: Double
     let reps: Int
-    let rpe: Double?
 
+    @State private var rpe: Double = 7.0
     @State private var isLogging = false
     @State private var showSuccess = false
     @State private var prResult: WatchPRResult?
+    @FocusState private var isFocused: Bool
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: WatchSpacing.md) {
-                HStack(spacing: WatchSpacing.lg) {
-                    VStack {
-                        Text(String(format: "%.1f", weight))
-                            .font(.watchLargeNumber)
-                        Text("kg")
-                            .font(.watchCaption)
-                            .foregroundColor(.secondary)
-                    }
+        VStack(spacing: WatchSpacing.md) {
+            Text("RPE")
+                .font(.watchCaption)
+                .foregroundColor(.secondary)
 
-                    Text("\u{00D7}")
+            HStack {
+                Button {
+                    if rpe > 1 {
+                        rpe -= 1
+                    }
+                } label: {
+                    Image(systemName: "minus.circle.fill")
                         .font(.title2)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.watchAccent)
+                }
+                .buttonStyle(.plain)
 
-                    VStack {
-                        Text("\(reps)")
-                            .font(.watchLargeNumber)
-                        Text("reps")
-                            .font(.watchCaption)
-                            .foregroundColor(.secondary)
+                Text("\(Int(rpe))")
+                    .font(.watchLargeNumber)
+                    .monospacedDigit()
+                    .foregroundColor(rpeColor)
+                    .frame(minWidth: 60)
+
+                Button {
+                    if rpe < 10 {
+                        rpe += 1
                     }
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title2)
+                        .foregroundColor(.watchAccent)
                 }
-
-                if let rpe = rpe {
-                    Text("RPE \(String(format: "%.1f", rpe))")
-                        .font(.watchCaption)
-                        .foregroundColor(.secondary)
-                }
-
-                WatchPrimaryButton(
-                    title: "Log Set",
-                    action: logSet,
-                    isLoading: isLogging
-                )
+                .buttonStyle(.plain)
             }
-            .padding()
+
+            Button {
+                logSet()
+            } label: {
+                if isLogging {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Text("Log Set")
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.watchAccent)
+            .disabled(isLogging)
         }
+        .focusable()
+        .focused($isFocused)
+        .digitalCrownRotation(
+            $rpe,
+            from: 1,
+            through: 10,
+            by: 1,
+            sensitivity: .low,
+            isContinuous: false,
+            isHapticFeedbackEnabled: true
+        )
         .navigationTitle(exercise.shortName ?? exercise.name)
+        .onAppear {
+            loadLastSet()
+            isFocused = true
+        }
         .overlay {
             if showSuccess {
                 successOverlay
             }
+        }
+    }
+
+    private var rpeColor: Color {
+        switch rpe {
+        case 1..<5:
+            return .green
+        case 5..<7:
+            return .yellow
+        case 7..<8.5:
+            return .orange
+        case 8.5..<10:
+            return .red
+        case 10:
+            return .purple
+        default:
+            return .primary
+        }
+    }
+
+    private func loadLastSet() {
+        if let lastSet = sessionManager.sets(for: exercise.id).first,
+           let lastRpe = lastSet.rpe {
+            rpe = round(lastRpe)
         }
     }
 
@@ -267,17 +354,14 @@ struct ConfirmSetView: View {
                 prResult = response.prResult
                 showSuccess = true
 
-                // Haptic feedback
                 if let prResult = prResult, prResult.hasAnyPR {
                     WKInterfaceDevice.current().play(.notification)
                 } else {
                     WKInterfaceDevice.current().play(.success)
                 }
 
-                // Auto-dismiss after delay
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     showSuccess = false
-                    // Pop to root
                     dismiss()
                 }
             } else {

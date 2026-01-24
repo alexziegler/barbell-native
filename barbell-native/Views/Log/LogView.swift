@@ -123,6 +123,17 @@ struct LogView: View {
                     .tag(exercise.id as UUID?)
             }
         }
+        .onChange(of: selectedExerciseId) { _, newExerciseId in
+            if let exerciseId = newExerciseId,
+               let lastWeight = logService.lastWeight(for: exerciseId) {
+                // Format weight nicely (no decimal if whole number)
+                if lastWeight.truncatingRemainder(dividingBy: 1) == 0 {
+                    weightText = String(format: "%.0f", lastWeight)
+                } else {
+                    weightText = String(format: "%.1f", lastWeight)
+                }
+            }
+        }
     }
 
     private var weightInput: some View {
@@ -266,6 +277,7 @@ struct LogView: View {
         guard let userId = authManager.currentUser?.id else { return }
         await logService.fetchExercises()
         await logService.fetchTodaysSets(for: userId)
+        await logService.fetchLastWeights(for: userId)
     }
 
     private func logSet() async {

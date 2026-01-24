@@ -96,6 +96,14 @@ final class LogService {
     private(set) var isSaving = false
     private(set) var error: Error?
 
+    /// Cache of last used weight per exercise (exerciseId -> weight)
+    private(set) var lastWeightCache: [UUID: Double] = [:]
+
+    /// Returns the last used weight for an exercise, or nil if not cached
+    func lastWeight(for exerciseId: UUID) -> Double? {
+        lastWeightCache[exerciseId]
+    }
+
     /// Fetches all available exercises
     func fetchExercises() async {
         isLoading = true
@@ -136,12 +144,52 @@ final class LogService {
 
             await MainActor.run {
                 self.todaysSets = fetchedSets
+                // Update cache from today's sets
+                self.updateWeightCache(from: fetchedSets)
             }
         } catch {
             await MainActor.run {
                 self.error = error
             }
         }
+    }
+
+    /// Fetches the last used weight for each exercise (for pre-filling)
+    func fetchLastWeights(for userId: UUID) async {
+        do {
+            // Fetch the most recent set for each exercise
+            // We get all sets ordered by date descending, then pick the first per exercise
+            let recentSets: [WorkoutSet] = try await supabaseClient
+                .from("sets")
+                .select()
+                .eq("user_id", value: userId.uuidString)
+                .order("performed_at", ascending: false)
+                .limit(500) // Limit to recent history
+                .execute()
+                .value
+
+            await MainActor.run {
+                self.updateWeightCache(from: recentSets)
+            }
+        } catch {
+            print("Failed to fetch last weights: \(error)")
+        }
+    }
+
+    /// Updates the weight cache from a list of sets (most recent wins)
+    private func updateWeightCache(from sets: [WorkoutSet]) {
+        for set in sets {
+            // Only update if we don't already have a weight for this exercise
+            // (since sets are ordered by date descending, first one is most recent)
+            if lastWeightCache[set.exerciseId] == nil {
+                lastWeightCache[set.exerciseId] = set.weight
+            }
+        }
+    }
+
+    /// Updates the cache for a specific exercise (called after logging a set)
+    private func updateWeightCache(exerciseId: UUID, weight: Double) {
+        lastWeightCache[exerciseId] = weight
     }
 
     /// Logs a new set and checks for PRs
@@ -180,6 +228,7 @@ final class LogService {
 
             await MainActor.run {
                 self.todaysSets.insert(savedSet, at: 0)
+                self.updateWeightCache(exerciseId: exerciseId, weight: weight)
                 self.isSaving = false
             }
 

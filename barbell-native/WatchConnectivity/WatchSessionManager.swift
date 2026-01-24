@@ -93,10 +93,34 @@ final class WatchSessionManager: NSObject {
         }
     }
 
+    /// Send last weights cache to Watch
+    func sendLastWeightsToWatch() {
+        guard let logService = logService else { return }
+        guard WCSession.default.isReachable else { return }
+
+        // Convert UUID keys to strings for JSON encoding
+        var stringKeyedCache: [String: Double] = [:]
+        for (key, value) in logService.lastWeightCache {
+            stringKeyedCache[key.uuidString] = value
+        }
+
+        guard let weightsData = try? JSONEncoder().encode(stringKeyedCache) else { return }
+
+        let message: [String: Any] = [
+            WatchMessageKey.action.rawValue: WatchMessageAction.lastWeightsUpdated.rawValue,
+            WatchMessageKey.lastWeights.rawValue: weightsData
+        ]
+
+        WCSession.default.sendMessage(message, replyHandler: nil) { error in
+            print("Failed to send last weights to Watch: \(error.localizedDescription)")
+        }
+    }
+
     /// Sync all data to Watch
     func syncToWatch() {
         sendExercisesToWatch()
         sendTodaysSetsToWatch()
+        sendLastWeightsToWatch()
     }
 }
 
@@ -170,6 +194,9 @@ extension WatchSessionManager {
         case .requestTodaysSets:
             await handleRequestTodaysSets(replyHandler: replyHandler)
 
+        case .requestLastWeights:
+            await handleRequestLastWeights(replyHandler: replyHandler)
+
         case .logSet:
             await handleLogSet(message: message, replyHandler: replyHandler)
 
@@ -234,6 +261,35 @@ extension WatchSessionManager {
         replyHandler?([
             WatchMessageKey.success.rawValue: true,
             WatchMessageKey.sets.rawValue: setsData
+        ])
+    }
+
+    @MainActor
+    private func handleRequestLastWeights(replyHandler: (([String: Any]) -> Void)?) async {
+        guard let logService = logService, let userId = userId else {
+            replyHandler?([WatchMessageKey.error.rawValue: "LogService or userId not available"])
+            return
+        }
+
+        // Ensure last weights are loaded
+        if logService.lastWeightCache.isEmpty {
+            await logService.fetchLastWeights(for: userId)
+        }
+
+        // Convert UUID keys to strings for JSON encoding
+        var stringKeyedCache: [String: Double] = [:]
+        for (key, value) in logService.lastWeightCache {
+            stringKeyedCache[key.uuidString] = value
+        }
+
+        guard let weightsData = try? JSONEncoder().encode(stringKeyedCache) else {
+            replyHandler?([WatchMessageKey.error.rawValue: "Failed to encode last weights"])
+            return
+        }
+
+        replyHandler?([
+            WatchMessageKey.success.rawValue: true,
+            WatchMessageKey.lastWeights.rawValue: weightsData
         ])
     }
 

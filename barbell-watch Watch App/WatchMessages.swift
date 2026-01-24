@@ -16,6 +16,7 @@ enum WatchMessageKey: String {
     case error
     case prResult
     case userId
+    case lastWeights
 }
 
 // MARK: - Actions
@@ -23,9 +24,11 @@ enum WatchMessageKey: String {
 enum WatchMessageAction: String, Codable {
     case requestExercises
     case requestTodaysSets
+    case requestLastWeights
     case logSet
     case exercisesUpdated
     case setsUpdated
+    case lastWeightsUpdated
     case logSetResponse
 }
 

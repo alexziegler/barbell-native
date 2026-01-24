@@ -9,9 +9,20 @@ final class WatchSessionManager: NSObject {
 
     private(set) var exercises: [WatchExercise] = []
     private(set) var todaysSets: [WatchSet] = []
+    private(set) var lastWeightCache: [UUID: Double] = [:]
     private(set) var isConnected = false
     private(set) var isLoading = false
     private(set) var lastError: String?
+
+    /// Returns the last used weight for an exercise
+    func lastWeight(for exerciseId: UUID) -> Double? {
+        // First check today's sets
+        if let todaySet = todaysSets.first(where: { $0.exerciseId == exerciseId }) {
+            return todaySet.weight
+        }
+        // Fall back to cache from historical data
+        return lastWeightCache[exerciseId]
+    }
 
     // MARK: - Initialization
 
@@ -37,6 +48,7 @@ final class WatchSessionManager: NSObject {
     func requestInitialData() {
         requestExercises()
         requestTodaysSets()
+        requestLastWeights()
     }
 
     /// Request exercises from iPhone
@@ -84,6 +96,23 @@ final class WatchSessionManager: NSObject {
                 self?.isLoading = false
                 self?.lastError = error.localizedDescription
             }
+        })
+    }
+
+    /// Request last weights cache from iPhone
+    func requestLastWeights() {
+        guard WCSession.default.isReachable else { return }
+
+        let message: [String: Any] = [
+            WatchMessageKey.action.rawValue: WatchMessageAction.requestLastWeights.rawValue
+        ]
+
+        WCSession.default.sendMessage(message, replyHandler: { [weak self] reply in
+            DispatchQueue.main.async {
+                self?.handleLastWeightsResponse(reply)
+            }
+        }, errorHandler: { error in
+            print("Failed to request last weights: \(error.localizedDescription)")
         })
     }
 
@@ -178,6 +207,22 @@ final class WatchSessionManager: NSObject {
         self.todaysSets = sets
         lastError = nil
     }
+
+    private func handleLastWeightsResponse(_ reply: [String: Any]) {
+        guard let data = reply[WatchMessageKey.lastWeights.rawValue] as? Data,
+              let weights = try? JSONDecoder().decode([String: Double].self, from: data) else {
+            return
+        }
+
+        // Convert string UUIDs back to UUID keys
+        var cache: [UUID: Double] = [:]
+        for (key, value) in weights {
+            if let uuid = UUID(uuidString: key) {
+                cache[uuid] = value
+            }
+        }
+        self.lastWeightCache = cache
+    }
 }
 
 // MARK: - WCSessionDelegate
@@ -234,6 +279,18 @@ extension WatchSessionManager: WCSessionDelegate {
             if let data = message[WatchMessageKey.sets.rawValue] as? Data,
                let sets = [WatchSet].from(data: data) {
                 self.todaysSets = sets
+            }
+
+        case .lastWeightsUpdated:
+            if let data = message[WatchMessageKey.lastWeights.rawValue] as? Data,
+               let weights = try? JSONDecoder().decode([String: Double].self, from: data) {
+                var cache: [UUID: Double] = [:]
+                for (key, value) in weights {
+                    if let uuid = UUID(uuidString: key) {
+                        cache[uuid] = value
+                    }
+                }
+                self.lastWeightCache = cache
             }
 
         default:
