@@ -2,6 +2,7 @@ import Foundation
 import Observation
 @preconcurrency import Supabase
 
+@MainActor
 @Observable
 final class WorkoutService {
     private(set) var sets: [WorkoutSet] = []
@@ -9,6 +10,12 @@ final class WorkoutService {
     private(set) var personalRecords: [PersonalRecord] = []
     private(set) var isLoading = false
     private(set) var error: Error?
+    
+    // Cached computed data with invalidation
+    private var cachedWorkoutDays: [WorkoutDay]?
+    private var cacheInvalidated = true
+    
+    private let repository = WorkoutRepository()
 
     /// Fetches all sets for a user, ordered by performed_at descending
     /// Returns the fetched sets for chaining
@@ -17,24 +24,16 @@ final class WorkoutService {
         error = nil
 
         do {
-            let fetchedSets: [WorkoutSet] = try await supabaseClient
-                .from("sets")
-                .select()
-                .eq("user_id", value: userId.uuidString)
-                .order("performed_at", ascending: false)
-                .execute()
-                .value
+            let fetchedSets = try await repository.fetchSets(for: userId)
 
-            await MainActor.run {
-                self.sets = fetchedSets
-                self.isLoading = false
-            }
+            self.sets = fetchedSets
+            self.isLoading = false
+            self.invalidateCache()
+            
             return fetchedSets
         } catch {
-            await MainActor.run {
-                self.error = error
-                self.isLoading = false
-            }
+            self.error = error
+            self.isLoading = false
             return []
         }
     }
@@ -44,42 +43,22 @@ final class WorkoutService {
         guard !exerciseIds.isEmpty else { return }
 
         do {
-            let fetchedExercises: [Exercise] = try await supabaseClient
-                .from("exercises")
-                .select()
-                .in("id", values: Array(exerciseIds).map { $0.uuidString.lowercased() })
-                .order("name", ascending: true)
-                .execute()
-                .value
+            let fetchedExercises = try await repository.fetchExercises(ids: exerciseIds)
 
-            await MainActor.run {
-                self.exercises = fetchedExercises
-            }
+            self.exercises = fetchedExercises
         } catch {
-            await MainActor.run {
-                self.error = error
-            }
+            self.error = error
         }
     }
 
     /// Fetches all personal records for a user
     func fetchPersonalRecords(for userId: UUID) async {
         do {
-            let fetchedPRs: [PersonalRecord] = try await supabaseClient
-                .from("personal_records")
-                .select()
-                .eq("user_id", value: userId.uuidString)
-                .order("performed_at", ascending: false)
-                .execute()
-                .value
+            let fetchedPRs = try await repository.fetchPersonalRecords(for: userId)
 
-            await MainActor.run {
-                self.personalRecords = fetchedPRs
-            }
+            self.personalRecords = fetchedPRs
         } catch {
-            await MainActor.run {
-                self.error = error
-            }
+            self.error = error
         }
     }
 
@@ -103,8 +82,19 @@ final class WorkoutService {
         }
     }
 
+    /// Invalidates the workout days cache
+    private func invalidateCache() {
+        cacheInvalidated = true
+        cachedWorkoutDays = nil
+    }
+
     /// Groups sets by date and returns WorkoutDay objects
     func getWorkoutDays() -> [WorkoutDay] {
+        // Return cached version if available
+        if let cached = cachedWorkoutDays, !cacheInvalidated {
+            return cached
+        }
+        
         let calendar = Calendar.current
 
         // Group sets by day (stripping time component)
@@ -113,7 +103,7 @@ final class WorkoutService {
         }
 
         // Create WorkoutDay for each date
-        return groupedSets.map { date, daySets in
+        let workoutDays = groupedSets.map { date, daySets in
             // Get unique exercise IDs for this day
             let exerciseIds = Set(daySets.map { $0.exerciseId })
             let dayExercises = exercises.filter { exerciseIds.contains($0.id) }
@@ -125,6 +115,12 @@ final class WorkoutService {
             )
         }
         .sorted { $0.date > $1.date } // Most recent first
+        
+        // Cache the result
+        cachedWorkoutDays = workoutDays
+        cacheInvalidated = false
+        
+        return workoutDays
     }
 
     /// Returns the exercise for a given ID
@@ -145,7 +141,7 @@ final class WorkoutService {
     /// Returns the best set (heaviest weight) for each exercise
     func bestSetsByExercise() -> [UUID: WorkoutSet] {
         var bestSets: [UUID: WorkoutSet] = [:]
-        for set in sets where !set.failed {
+        for set in sets where set.isSuccessful {
             if let existing = bestSets[set.exerciseId] {
                 if set.weight > existing.weight {
                     bestSets[set.exerciseId] = set
@@ -159,17 +155,13 @@ final class WorkoutService {
 
     /// Returns the estimated 1RM for a set using Brzycki formula
     func estimated1RM(for set: WorkoutSet) -> Double {
-        if set.reps == 1 {
-            return set.weight
-        }
-        // Brzycki formula: weight × (36 / (37 - reps))
-        return set.weight * (36.0 / (37.0 - Double(set.reps)))
+        OneRepMaxCalculator.estimated1RM(for: set)
     }
 
     /// Returns the best estimated 1RM for each exercise
     func best1RMByExercise() -> [UUID: Double] {
         var best1RMs: [UUID: Double] = [:]
-        for set in sets where !set.failed && set.reps > 0 && set.reps <= 12 {
+        for set in sets where set.isSuccessful && set.reps > 0 && set.reps <= Constants.WorkoutValidation.maxRepsFor1RM {
             let e1rm = estimated1RM(for: set)
             if let existing = best1RMs[set.exerciseId] {
                 if e1rm > existing {
@@ -186,19 +178,19 @@ final class WorkoutService {
     /// Returns nil if any of the big 3 exercises are missing
     func thousandPoundClubTotal() -> Double? {
         let best1RMs = best1RMByExercise()
-        let exerciseNames = exercises.reduce(into: [UUID: String]()) { $0[$1.id] = $1.name.lowercased() }
 
         var squat: Double?
         var bench: Double?
         var deadlift: Double?
 
         for (exerciseId, e1rm) in best1RMs {
-            guard let name = exerciseNames[exerciseId] else { continue }
-            if name.contains("squat") && !name.contains("front") {
+            guard let exercise = exercises.first(where: { $0.id == exerciseId }) else { continue }
+            
+            if Constants.Powerlifting.BigThree.matches(exercise: exercise, name: Constants.Powerlifting.BigThree.squat) {
                 squat = max(squat ?? 0, e1rm)
-            } else if name.contains("bench") {
+            } else if Constants.Powerlifting.BigThree.matches(exercise: exercise, name: Constants.Powerlifting.BigThree.bench) {
                 bench = max(bench ?? 0, e1rm)
-            } else if name.contains("deadlift") {
+            } else if Constants.Powerlifting.BigThree.matches(exercise: exercise, name: Constants.Powerlifting.BigThree.deadlift) {
                 deadlift = max(deadlift ?? 0, e1rm)
             }
         }
@@ -210,24 +202,17 @@ final class WorkoutService {
     /// Deletes a set
     func deleteSet(_ set: WorkoutSet) async -> Bool {
         do {
-            try await supabaseClient
-                .from("sets")
-                .delete()
-                .eq("id", value: set.id.uuidString)
-                .execute()
+            try await repository.deleteSet(set)
 
-            await MainActor.run {
-                self.sets.removeAll { $0.id == set.id }
-            }
+            self.sets.removeAll { $0.id == set.id }
+            self.invalidateCache()
 
             // Recompute PRs since deletion can change them
-            await recomputePRs()
+            try? await repository.recomputePRs()
 
             return true
         } catch {
-            await MainActor.run {
-                self.error = error
-            }
+            self.error = error
             return false
         }
     }
@@ -241,50 +226,29 @@ final class WorkoutService {
         notes: String?
     ) async -> Bool {
         do {
-            let updateData = UpdateSet(
+            let updatedSet = try await repository.updateSet(
+                set,
                 weight: weight,
                 reps: reps,
                 rpe: rpe,
                 notes: notes
             )
 
-            let updatedSet: WorkoutSet = try await supabaseClient
-                .from("sets")
-                .update(updateData)
-                .eq("id", value: set.id.uuidString)
-                .select()
-                .single()
-                .execute()
-                .value
-
-            await MainActor.run {
-                if let index = self.sets.firstIndex(where: { $0.id == set.id }) {
-                    self.sets[index] = updatedSet
-                }
+            if let index = self.sets.firstIndex(where: { $0.id == set.id }) {
+                self.sets[index] = updatedSet
             }
+            self.invalidateCache()
 
             // Recompute PRs since updates can change them
-            await recomputePRs()
+            try? await repository.recomputePRs()
 
             return true
         } catch {
-            await MainActor.run {
-                self.error = error
-            }
+            self.error = error
             return false
         }
     }
 
-    /// Calls the RPC function to recompute all PRs
-    private func recomputePRs() async {
-        do {
-            try await supabaseClient
-                .rpc("recompute_prs")
-                .execute()
-        } catch {
-            print("Failed to recompute PRs: \(error)")
-        }
-    }
 
     /// Filters workout days to only include sets for a specific exercise
     func getWorkoutDays(filteredBy exerciseId: UUID?) -> [WorkoutDay] {

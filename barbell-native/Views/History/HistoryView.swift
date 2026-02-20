@@ -108,7 +108,7 @@ struct HistoryView: View {
                         .font(.headline)
 
                     if let total = workoutService.thousandPoundClubTotal() {
-                        let totalLbs = total * 2.20462
+                        let totalLbs = WeightFormatter.kgToLbs(total)
                         Text("1000 lb Club: \(Int(totalLbs)) lbs (\(Int(total)) kg)")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
@@ -200,8 +200,8 @@ struct PersonalBestsView: View {
     }
 
     private func thousandPoundClubView(total: Double) -> some View {
-        let totalLbs = total * 2.20462
-        let targetLbs = 1000.0
+        let totalLbs = WeightFormatter.kgToLbs(total)
+        let targetLbs = Constants.Powerlifting.thousandPoundClubTarget
         let progress = min(totalLbs / targetLbs, 1.0)
 
         return VStack(alignment: .leading, spacing: 12) {
@@ -269,7 +269,7 @@ struct PRRow: View {
                     Text("Best Set")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
-                    Text("\(formatWeight(bestSet.weight)) kg × \(bestSet.reps)")
+                    Text("\(WeightFormatter.format(bestSet.weight)) kg × \(bestSet.reps)")
                         .font(.subheadline)
                 }
 
@@ -279,7 +279,7 @@ struct PRRow: View {
                     Text("Est. 1RM")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
-                    Text("\(formatWeight(estimated1RM)) kg")
+                    Text("\(WeightFormatter.format(estimated1RM)) kg")
                         .font(.subheadline)
                         .fontWeight(.semibold)
                 }
@@ -287,14 +287,6 @@ struct PRRow: View {
             .foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
-    }
-
-    private func formatWeight(_ weight: Double) -> String {
-        if weight.truncatingRemainder(dividingBy: 1) == 0 {
-            return String(format: "%.0f", weight)
-        } else {
-            return String(format: "%.1f", weight)
-        }
     }
 }
 

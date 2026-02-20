@@ -88,6 +88,7 @@ struct LogSetResult {
     let prResult: PRResult?
 }
 
+@MainActor
 @Observable
 final class LogService {
     private(set) var exercises: [Exercise] = []
@@ -98,6 +99,8 @@ final class LogService {
 
     /// Cache of last used weight per exercise (exerciseId -> weight)
     private(set) var lastWeightCache: [UUID: Double] = [:]
+    
+    private let repository = WorkoutRepository()
 
     /// Returns the last used weight for an exercise, or nil if not cached
     func lastWeight(for exerciseId: UUID) -> Double? {
@@ -108,69 +111,36 @@ final class LogService {
     func fetchExercises() async {
         isLoading = true
         do {
-            let fetchedExercises: [Exercise] = try await supabaseClient
-                .from("exercises")
-                .select()
-                .order("name", ascending: true)
-                .execute()
-                .value
+            let fetchedExercises = try await repository.fetchAllExercises()
 
-            await MainActor.run {
-                self.exercises = fetchedExercises
-                self.isLoading = false
-            }
+            self.exercises = fetchedExercises
+            self.isLoading = false
         } catch {
-            await MainActor.run {
-                self.error = error
-                self.isLoading = false
-            }
+            self.error = error
+            self.isLoading = false
         }
     }
 
     /// Fetches today's sets for a user
     func fetchTodaysSets(for userId: UUID) async {
-        let calendar = Calendar.current
-        let startOfDay = calendar.startOfDay(for: Date())
-
         do {
-            let fetchedSets: [WorkoutSet] = try await supabaseClient
-                .from("sets")
-                .select()
-                .eq("user_id", value: userId.uuidString)
-                .gte("performed_at", value: ISO8601DateFormatter().string(from: startOfDay))
-                .order("performed_at", ascending: false)
-                .execute()
-                .value
+            let fetchedSets = try await repository.fetchTodaysSets(for: userId)
 
-            await MainActor.run {
-                self.todaysSets = fetchedSets
-                // Update cache from today's sets
-                self.updateWeightCache(from: fetchedSets)
-            }
+            self.todaysSets = fetchedSets
+            // Update cache from today's sets
+            self.updateWeightCache(from: fetchedSets)
         } catch {
-            await MainActor.run {
-                self.error = error
-            }
+            self.error = error
         }
     }
 
     /// Fetches the last used weight for each exercise (for pre-filling)
     func fetchLastWeights(for userId: UUID) async {
         do {
-            // Fetch the most recent set for each exercise
-            // We get all sets ordered by date descending, then pick the first per exercise
-            let recentSets: [WorkoutSet] = try await supabaseClient
-                .from("sets")
-                .select()
-                .eq("user_id", value: userId.uuidString)
-                .order("performed_at", ascending: false)
-                .limit(500) // Limit to recent history
-                .execute()
-                .value
+            // Fetch the most recent sets for building weight cache
+            let recentSets = try await repository.fetchRecentSets(for: userId)
 
-            await MainActor.run {
-                self.updateWeightCache(from: recentSets)
-            }
+            self.updateWeightCache(from: recentSets)
         } catch {
             print("Failed to fetch last weights: \(error)")
         }
@@ -202,9 +172,7 @@ final class LogService {
         failed: Bool,
         userId: UUID
     ) async -> LogSetResult? {
-        await MainActor.run {
-            self.isSaving = true
-        }
+        self.isSaving = true
 
         let newSet = NewSet(
             performedAt: Date(),
@@ -218,60 +186,26 @@ final class LogService {
         )
 
         do {
-            let savedSet: WorkoutSet = try await supabaseClient
-                .from("sets")
-                .insert(newSet)
-                .select()
-                .single()
-                .execute()
-                .value
+            let savedSet = try await repository.insertSet(newSet)
 
-            await MainActor.run {
-                self.todaysSets.insert(savedSet, at: 0)
-                self.updateWeightCache(exerciseId: exerciseId, weight: weight)
-                self.isSaving = false
-            }
+            self.todaysSets.insert(savedSet, at: 0)
+            self.updateWeightCache(exerciseId: exerciseId, weight: weight)
+            self.isSaving = false
 
             // Check for PRs after inserting the set
-            let prResult = await upsertPRForSet(savedSet.id)
+            let prResult = try? await repository.upsertPRForSet(savedSet.id)
 
             // Recompute all PRs to ensure consistency
-            await recomputePRs()
+            try? await repository.recomputePRs()
 
             return LogSetResult(set: savedSet, prResult: prResult)
         } catch {
-            await MainActor.run {
-                self.error = error
-                self.isSaving = false
-            }
+            self.error = error
+            self.isSaving = false
             return nil
         }
     }
 
-    /// Calls the RPC function to check/upsert PR for a specific set
-    private func upsertPRForSet(_ setId: UUID) async -> PRResult? {
-        do {
-            let result: PRResult = try await supabaseClient
-                .rpc("upsert_pr_for_set", params: ["p_set_id": setId.uuidString.lowercased()])
-                .execute()
-                .value
-            return result
-        } catch {
-            print("Failed to upsert PR for set: \(error)")
-            return nil
-        }
-    }
-
-    /// Calls the RPC function to recompute all PRs
-    func recomputePRs() async {
-        do {
-            try await supabaseClient
-                .rpc("recompute_prs")
-                .execute()
-        } catch {
-            print("Failed to recompute PRs: \(error)")
-        }
-    }
 
     /// Returns the exercise for a given ID
     func exercise(for id: UUID) -> Exercise? {
@@ -286,24 +220,16 @@ final class LogService {
     /// Deletes a set
     func deleteSet(_ set: WorkoutSet) async -> Bool {
         do {
-            try await supabaseClient
-                .from("sets")
-                .delete()
-                .eq("id", value: set.id.uuidString)
-                .execute()
+            try await repository.deleteSet(set)
 
-            await MainActor.run {
-                self.todaysSets.removeAll { $0.id == set.id }
-            }
+            self.todaysSets.removeAll { $0.id == set.id }
 
             // Recompute PRs since deletion can change them
-            await recomputePRs()
+            try? await repository.recomputePRs()
 
             return true
         } catch {
-            await MainActor.run {
-                self.error = error
-            }
+            self.error = error
             return false
         }
     }
@@ -316,43 +242,29 @@ final class LogService {
         rpe: Double?,
         notes: String?
     ) async -> Bool {
-        await MainActor.run {
-            self.isSaving = true
-        }
+        self.isSaving = true
 
         do {
-            let updateData = UpdateSet(
+            let updatedSet = try await repository.updateSet(
+                set,
                 weight: weight,
                 reps: reps,
                 rpe: rpe,
                 notes: notes
             )
 
-            let updatedSet: WorkoutSet = try await supabaseClient
-                .from("sets")
-                .update(updateData)
-                .eq("id", value: set.id.uuidString)
-                .select()
-                .single()
-                .execute()
-                .value
-
-            await MainActor.run {
-                if let index = self.todaysSets.firstIndex(where: { $0.id == set.id }) {
-                    self.todaysSets[index] = updatedSet
-                }
-                self.isSaving = false
+            if let index = self.todaysSets.firstIndex(where: { $0.id == set.id }) {
+                self.todaysSets[index] = updatedSet
             }
+            self.isSaving = false
 
             // Recompute PRs since updates can change them
-            await recomputePRs()
+            try? await repository.recomputePRs()
 
             return true
         } catch {
-            await MainActor.run {
-                self.error = error
-                self.isSaving = false
-            }
+            self.error = error
+            self.isSaving = false
             return false
         }
     }
@@ -363,9 +275,7 @@ final class LogService {
         shortName: String?,
         userId: UUID
     ) async -> Exercise? {
-        await MainActor.run {
-            self.isSaving = true
-        }
+        self.isSaving = true
 
         let newExercise = NewExercise(
             name: name,
@@ -376,26 +286,28 @@ final class LogService {
         )
 
         do {
-            let savedExercise: Exercise = try await supabaseClient
-                .from("exercises")
-                .insert(newExercise)
-                .select()
-                .single()
-                .execute()
-                .value
+            let savedExercise = try await repository.createExercise(newExercise)
 
-            await MainActor.run {
-                self.exercises.append(savedExercise)
-                self.exercises.sort { $0.name < $1.name }
-                self.isSaving = false
-            }
+            self.exercises.append(savedExercise)
+            self.exercises.sort { $0.name < $1.name }
+            self.isSaving = false
+            
             return savedExercise
         } catch {
-            await MainActor.run {
-                self.error = error
-                self.isSaving = false
-            }
+            self.error = error
+            self.isSaving = false
             return nil
+        }
+    }
+    
+    /// Recomputes all personal records
+    /// This is a public-facing method for manual PR recalculation (e.g., from settings)
+    func recomputePRs() async {
+        do {
+            try await repository.recomputePRs()
+        } catch {
+            print("Failed to recompute PRs: \(error)")
+            self.error = error
         }
     }
 }

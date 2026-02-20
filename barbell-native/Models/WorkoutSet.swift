@@ -1,5 +1,6 @@
 import Foundation
 
+/// Represents a single workout set performed by a user
 struct WorkoutSet: Codable, Identifiable, Hashable {
     let id: UUID
     let performedAt: Date
@@ -25,3 +26,22 @@ struct WorkoutSet: Codable, Identifiable, Hashable {
         case createdAt = "created_at"
     }
 }
+// MARK: - WorkoutSet Extensions
+
+extension WorkoutSet {
+    /// Whether this set was successfully completed (not failed)
+    var isSuccessful: Bool {
+        !failed
+    }
+    
+    /// Whether this set has RPE (Rate of Perceived Exertion) data
+    var hasRPE: Bool {
+        rpe != nil
+    }
+    
+    /// Whether this set has additional notes
+    var hasNotes: Bool {
+        notes != nil && !notes!.isEmpty
+    }
+}
+

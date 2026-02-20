@@ -13,6 +13,7 @@ final class WatchSessionManager: NSObject {
     private(set) var isWatchAppInstalled = false
 
     private var logService: LogService?
+    private var syncService: WatchSyncService?
     private var userId: UUID?
 
     private override init() {
@@ -35,6 +36,7 @@ final class WatchSessionManager: NSObject {
     /// Configure with dependencies (call after views are ready)
     func configure(logService: LogService, userId: UUID?) {
         self.logService = logService
+        self.syncService = WatchSyncService(logService: logService)
         self.userId = userId
         print("WatchSessionManager configured with logService and userId: \(String(describing: userId))")
     }
@@ -46,81 +48,22 @@ final class WatchSessionManager: NSObject {
 
     /// Send exercises to Watch
     func sendExercisesToWatch() {
-        guard let logService = logService else { return }
-        guard WCSession.default.isReachable else { return }
-
-        let watchExercises = logService.exercises.map { exercise in
-            WatchExercise(id: exercise.id, name: exercise.name, shortName: exercise.shortName)
-        }
-
-        guard let exercisesData = watchExercises.toData() else { return }
-
-        let message: [String: Any] = [
-            WatchMessageKey.action.rawValue: WatchMessageAction.exercisesUpdated.rawValue,
-            WatchMessageKey.exercises.rawValue: exercisesData
-        ]
-
-        WCSession.default.sendMessage(message, replyHandler: nil) { error in
-            print("Failed to send exercises to Watch: \(error.localizedDescription)")
-        }
+        syncService?.sendExercisesToWatch()
     }
 
     /// Send today's sets to Watch
     func sendTodaysSetsToWatch() {
-        guard let logService = logService else { return }
-        guard WCSession.default.isReachable else { return }
-
-        let watchSets = logService.todaysSets.map { set in
-            WatchSet(
-                id: set.id,
-                exerciseId: set.exerciseId,
-                weight: set.weight,
-                reps: set.reps,
-                rpe: set.rpe,
-                performedAt: set.performedAt
-            )
-        }
-
-        guard let setsData = watchSets.toData() else { return }
-
-        let message: [String: Any] = [
-            WatchMessageKey.action.rawValue: WatchMessageAction.setsUpdated.rawValue,
-            WatchMessageKey.sets.rawValue: setsData
-        ]
-
-        WCSession.default.sendMessage(message, replyHandler: nil) { error in
-            print("Failed to send sets to Watch: \(error.localizedDescription)")
-        }
+        syncService?.sendTodaysSetsToWatch()
     }
 
     /// Send last weights cache to Watch
     func sendLastWeightsToWatch() {
-        guard let logService = logService else { return }
-        guard WCSession.default.isReachable else { return }
-
-        // Convert UUID keys to strings for JSON encoding
-        var stringKeyedCache: [String: Double] = [:]
-        for (key, value) in logService.lastWeightCache {
-            stringKeyedCache[key.uuidString] = value
-        }
-
-        guard let weightsData = try? JSONEncoder().encode(stringKeyedCache) else { return }
-
-        let message: [String: Any] = [
-            WatchMessageKey.action.rawValue: WatchMessageAction.lastWeightsUpdated.rawValue,
-            WatchMessageKey.lastWeights.rawValue: weightsData
-        ]
-
-        WCSession.default.sendMessage(message, replyHandler: nil) { error in
-            print("Failed to send last weights to Watch: \(error.localizedDescription)")
-        }
+        syncService?.sendLastWeightsToWatch()
     }
 
     /// Sync all data to Watch
     func syncToWatch() {
-        sendExercisesToWatch()
-        sendTodaysSetsToWatch()
-        sendLastWeightsToWatch()
+        syncService?.syncAll()
     }
 }
 
@@ -207,8 +150,8 @@ extension WatchSessionManager {
 
     @MainActor
     private func handleRequestExercises(replyHandler: (([String: Any]) -> Void)?) async {
-        guard let logService = logService else {
-            replyHandler?([WatchMessageKey.error.rawValue: "LogService not available"])
+        guard let logService = logService, let syncService = syncService else {
+            replyHandler?([WatchMessageKey.error.rawValue: "Services not available"])
             return
         }
 
@@ -217,57 +160,34 @@ extension WatchSessionManager {
             await logService.fetchExercises()
         }
 
-        let watchExercises = logService.exercises.map { exercise in
-            WatchExercise(id: exercise.id, name: exercise.name, shortName: exercise.shortName)
+        if let response = syncService.prepareExercisesResponse() {
+            replyHandler?(response)
+        } else {
+            replyHandler?([WatchMessageKey.error.rawValue: "Failed to prepare exercises"])
         }
-
-        guard let exercisesData = watchExercises.toData() else {
-            replyHandler?([WatchMessageKey.error.rawValue: "Failed to encode exercises"])
-            return
-        }
-
-        replyHandler?([
-            WatchMessageKey.success.rawValue: true,
-            WatchMessageKey.exercises.rawValue: exercisesData
-        ])
     }
 
     @MainActor
     private func handleRequestTodaysSets(replyHandler: (([String: Any]) -> Void)?) async {
-        guard let logService = logService, let userId = userId else {
-            replyHandler?([WatchMessageKey.error.rawValue: "LogService or userId not available"])
+        guard let logService = logService, let syncService = syncService, let userId = userId else {
+            replyHandler?([WatchMessageKey.error.rawValue: "Services or userId not available"])
             return
         }
 
         // Fetch fresh data
         await logService.fetchTodaysSets(for: userId)
 
-        let watchSets = logService.todaysSets.map { set in
-            WatchSet(
-                id: set.id,
-                exerciseId: set.exerciseId,
-                weight: set.weight,
-                reps: set.reps,
-                rpe: set.rpe,
-                performedAt: set.performedAt
-            )
+        if let response = syncService.prepareTodaysSetsResponse() {
+            replyHandler?(response)
+        } else {
+            replyHandler?([WatchMessageKey.error.rawValue: "Failed to prepare sets"])
         }
-
-        guard let setsData = watchSets.toData() else {
-            replyHandler?([WatchMessageKey.error.rawValue: "Failed to encode sets"])
-            return
-        }
-
-        replyHandler?([
-            WatchMessageKey.success.rawValue: true,
-            WatchMessageKey.sets.rawValue: setsData
-        ])
     }
 
     @MainActor
     private func handleRequestLastWeights(replyHandler: (([String: Any]) -> Void)?) async {
-        guard let logService = logService, let userId = userId else {
-            replyHandler?([WatchMessageKey.error.rawValue: "LogService or userId not available"])
+        guard let logService = logService, let syncService = syncService, let userId = userId else {
+            replyHandler?([WatchMessageKey.error.rawValue: "Services or userId not available"])
             return
         }
 
@@ -276,27 +196,17 @@ extension WatchSessionManager {
             await logService.fetchLastWeights(for: userId)
         }
 
-        // Convert UUID keys to strings for JSON encoding
-        var stringKeyedCache: [String: Double] = [:]
-        for (key, value) in logService.lastWeightCache {
-            stringKeyedCache[key.uuidString] = value
+        if let response = syncService.prepareLastWeightsResponse() {
+            replyHandler?(response)
+        } else {
+            replyHandler?([WatchMessageKey.error.rawValue: "Failed to prepare last weights"])
         }
-
-        guard let weightsData = try? JSONEncoder().encode(stringKeyedCache) else {
-            replyHandler?([WatchMessageKey.error.rawValue: "Failed to encode last weights"])
-            return
-        }
-
-        replyHandler?([
-            WatchMessageKey.success.rawValue: true,
-            WatchMessageKey.lastWeights.rawValue: weightsData
-        ])
     }
 
     @MainActor
     private func handleLogSet(message: [String: Any], replyHandler: (([String: Any]) -> Void)?) async {
-        guard let logService = logService, let userId = userId else {
-            replyHandler?([WatchMessageKey.error.rawValue: "LogService or userId not available"])
+        guard let logService = logService, let syncService = syncService, let userId = userId else {
+            replyHandler?([WatchMessageKey.error.rawValue: "Services or userId not available"])
             return
         }
 
@@ -317,31 +227,8 @@ extension WatchSessionManager {
         )
 
         if let result = result {
-            let watchSet = WatchSet(
-                id: result.set.id,
-                exerciseId: result.set.exerciseId,
-                weight: result.set.weight,
-                reps: result.set.reps,
-                rpe: result.set.rpe,
-                performedAt: result.set.performedAt
-            )
-
-            var prResult: WatchPRResult?
-            if let pr = result.prResult {
-                prResult = WatchPRResult(
-                    newWeight: pr.newWeight,
-                    new1rm: pr.new1rm,
-                    newVolume: pr.newVolume
-                )
-            }
-
-            let response = LogSetResponse(
-                success: true,
-                set: watchSet,
-                prResult: prResult,
-                error: nil
-            )
-            replyHandler?(response.toDictionary())
+            let response = syncService.prepareLogSetResponse(result: result)
+            replyHandler?(response)
         } else {
             let response = LogSetResponse(
                 success: false,

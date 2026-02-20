@@ -4,4 +4,28 @@
    <FileRef
       location = "self:">
    </FileRef>
+   <FileRef
+      location = "group:ServicesWorkoutRepository.swift">
+   </FileRef>
+   <FileRef
+      location = "group:UtilitiesWeightFormatter.swift">
+   </FileRef>
+   <FileRef
+      location = "group:UtilitiesOneRepMaxCalculator.swift">
+   </FileRef>
+   <FileRef
+      location = "group:ServicesWatchSyncService.swift">
+   </FileRef>
+   <FileRef
+      location = "group:UtilitiesViewState.swift">
+   </FileRef>
+   <FileRef
+      location = "group:UtilitiesConstants.swift">
+   </FileRef>
+   <FileRef
+      location = "group:IMPROVEMENTS.md">
+   </FileRef>
+   <FileRef
+      location = "group:VERIFICATION.md">
+   </FileRef>
 </Workspace>

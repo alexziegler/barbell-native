@@ -1,5 +1,6 @@
 import Foundation
 
+/// Represents a personal record achievement for a specific exercise
 struct PersonalRecord: Codable, Identifiable, Hashable {
     let id: UUID
     let exerciseId: UUID
@@ -27,7 +28,21 @@ struct PersonalRecord: Codable, Identifiable, Hashable {
         case "1rm": return "1 Rep Max"
         case "5rm": return "5 Rep Max"
         case "10rm": return "10 Rep Max"
+        case "weight": return "Heaviest Weight"
+        case "volume": return "Best Volume"
         default: return metric.uppercased()
         }
     }
 }
+// MARK: - PR Metric Constants
+
+extension PersonalRecord {
+    enum Metric {
+        static let oneRepMax = "1rm"
+        static let fiveRepMax = "5rm"
+        static let tenRepMax = "10rm"
+        static let weight = "weight"
+        static let volume = "volume"
+    }
+}
+
