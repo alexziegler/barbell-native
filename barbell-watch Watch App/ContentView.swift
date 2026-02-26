@@ -6,6 +6,40 @@ private struct ExerciseSummary: Identifiable {
     let setCount: Int
 }
 
+private struct TodaySetsSummary: View {
+    let groups: [ExerciseSummary]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("Today's sets")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .padding(.top, 2)
+
+            Text(rowsText)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Builds a single attributed string with one exercise per line so we
+    /// never need ForEach, avoiding SDK-specific overload resolution issues.
+    private var rowsText: AttributedString {
+        groups.enumerated().reduce(into: AttributedString()) { result, pair in
+            let (index, group) = pair
+            if index > 0 { result += AttributedString("\n") }
+
+            var name = AttributedString(group.displayName + "  ")
+            name.font = .system(size: 12, weight: .medium)
+
+            var dots = AttributedString(String(repeating: "·", count: min(group.setCount, 12)))
+            dots.font = .system(size: 13)
+            dots.foregroundColor = Color.watchAccent
+
+            result += name + dots
+        }
+    }
+}
+
 struct ContentView: View {
     @Environment(WatchSessionManager.self) private var sessionManager
 
@@ -32,7 +66,7 @@ struct ContentView: View {
 
                     // Today's sets summary
                     if !sessionManager.todaysSets.isEmpty {
-                        todaySummary
+                        TodaySetsSummary(groups: groupedSets)
                     }
                 }
                 .padding(.horizontal)
@@ -45,29 +79,6 @@ struct ContentView: View {
     }
 
     // MARK: - Today's Summary
-
-    private var todaySummary: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text("Today's sets")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .padding(.top, 2)
-
-            ForEach(groupedSets) { group in
-                HStack(spacing: 5) {
-                    Text(group.displayName)
-                        .font(.system(size: 12, weight: .medium))
-                        .lineLimit(1)
-
-                    Text(String(repeating: "·", count: min(group.setCount, 12)))
-                        .font(.system(size: 14))
-                        .foregroundStyle(.watchAccent)
-                        .kerning(1.5)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
 
     private var groupedSets: [ExerciseSummary] {
         // Preserve exercise order by first appearance in todaysSets
