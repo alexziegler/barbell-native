@@ -13,6 +13,14 @@ struct QuickLogView: View {
             }
         }
         .navigationTitle("Log Set")
+        .onAppear {
+            // Re-request every time the user opens this screen while the list
+            // is empty, so a transient connection failure self-heals on the
+            // next navigation without requiring an app restart.
+            if sessionManager.exercises.isEmpty {
+                sessionManager.requestExercises()
+            }
+        }
     }
 
     private var emptyStateView: some View {
@@ -36,6 +44,10 @@ struct QuickLogView: View {
                 Text("No exercises")
                     .font(.watchCaption)
                     .foregroundColor(.secondary)
+                Button("Refresh") {
+                    sessionManager.requestExercises()
+                }
+                .tint(.watchAccent)
             }
         }
     }

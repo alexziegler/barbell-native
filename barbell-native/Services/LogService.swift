@@ -115,6 +115,10 @@ final class LogService {
 
             self.exercises = fetchedExercises
             self.isLoading = false
+
+            // Proactively push exercises to Watch via applicationContext so
+            // the Watch always has them, even across Watch app restarts.
+            WatchSessionManager.shared.sendExercisesToWatch()
         } catch {
             self.error = error
             self.isLoading = false

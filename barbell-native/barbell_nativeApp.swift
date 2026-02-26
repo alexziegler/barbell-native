@@ -6,12 +6,18 @@ import Auth
 @main
 struct barbell_nativeApp: App {
     @State private var authManager = AuthManager()
-    @State private var logService = LogService()
+    @State private var logService: LogService
 
     init() {
+        // Create LogService first so we can hand it to WatchSessionManager
+        // synchronously — before any WCSession message from the Watch arrives.
+        let service = LogService()
+        _logService = State(initialValue: service)
         configureAppearance()
-        // Configure WatchConnectivity early
         WatchSessionManager.shared.activateSession()
+        // configure() must be called here, not in a .task, so the iPhone can
+        // respond to Watch requests that arrive immediately after activation.
+        WatchSessionManager.shared.configure(logService: service, userId: nil)
     }
 
     var body: some Scene {
@@ -21,13 +27,6 @@ struct barbell_nativeApp: App {
                 .environment(logService)
                 .tint(Color.appAccent)
                 .preferredColorScheme(.dark)
-                .task {
-                    // Configure with dependencies once view is ready
-                    WatchSessionManager.shared.configure(
-                        logService: logService,
-                        userId: authManager.currentUser?.id
-                    )
-                }
                 .onChange(of: authManager.currentUser?.id) { _, newUserId in
                     WatchSessionManager.shared.updateUserId(newUserId)
                 }
@@ -46,12 +45,7 @@ struct barbell_nativeApp: App {
         ]
     }
 
-    private func configureWatchConnectivity() {
-        WatchSessionManager.shared.configure(
-            logService: logService,
-            userId: authManager.currentUser?.id
-        )
-    }
+
 }
 
 struct RootView: View {
