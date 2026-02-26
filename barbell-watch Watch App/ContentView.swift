@@ -47,7 +47,7 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
                 .padding(.top, 2)
 
-            ForEach(groupedSets, id: \.exerciseId) { group in
+            ForEach(groupedSets) { group in
                 HStack(spacing: 5) {
                     Text(group.displayName)
                         .font(.system(size: 12, weight: .medium))
@@ -63,8 +63,8 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private struct ExerciseSummary {
-        let exerciseId: UUID
+    private struct ExerciseSummary: Identifiable {
+        let id: UUID          // exerciseId, doubles as Identifiable conformance
         let displayName: String
         let setCount: Int
     }
@@ -80,7 +80,7 @@ struct ContentView: View {
         return seen.map { id in
             let count = sessionManager.todaysSets.filter { $0.exerciseId == id }.count
             let name = sessionManager.exercise(for: id)?.displayName ?? "?"
-            return ExerciseSummary(exerciseId: id, displayName: name, setCount: count)
+            return ExerciseSummary(id: id, displayName: name, setCount: count)
         }
     }
 }
