@@ -1,5 +1,11 @@
 import SwiftUI
 
+private struct ExerciseSummary: Identifiable {
+    let id: UUID
+    let displayName: String
+    let setCount: Int
+}
+
 struct ContentView: View {
     @Environment(WatchSessionManager.self) private var sessionManager
 
@@ -61,12 +67,6 @@ struct ContentView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private struct ExerciseSummary: Identifiable {
-        let id: UUID          // exerciseId, doubles as Identifiable conformance
-        let displayName: String
-        let setCount: Int
     }
 
     private var groupedSets: [ExerciseSummary] {
