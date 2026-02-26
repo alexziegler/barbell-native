@@ -11,21 +11,32 @@ final class WatchSyncService {
         self.logService = logService
     }
     
-    /// Sends exercises to Watch if reachable
+    /// Sends exercises to Watch.
+    /// Uses two delivery paths:
+    /// - updateApplicationContext: background delivery, survives Watch process restarts,
+    ///   no connectivity required at call time.
+    /// - sendMessage: immediate delivery when Watch is reachable (foreground).
     func sendExercisesToWatch() {
-        guard WCSession.default.isReachable else { return }
-        
         let watchExercises = logService.exercises.map { exercise in
             WatchExercise(id: exercise.id, name: exercise.name, shortName: exercise.shortName)
         }
-        
+
         guard let exercisesData = watchExercises.toData() else { return }
-        
+
+        // Always update application context — the Watch reads this on next launch
+        // even if it isn't reachable right now.
+        try? WCSession.default.updateApplicationContext([
+            WatchMessageKey.exercises.rawValue: exercisesData
+        ])
+
+        // Also push immediately if the Watch is currently in the foreground.
+        guard WCSession.default.isReachable else { return }
+
         let message: [String: Any] = [
             WatchMessageKey.action.rawValue: WatchMessageAction.exercisesUpdated.rawValue,
             WatchMessageKey.exercises.rawValue: exercisesData
         ]
-        
+
         WCSession.default.sendMessage(message, replyHandler: nil) { error in
             print("Failed to send exercises to Watch: \(error.localizedDescription)")
         }

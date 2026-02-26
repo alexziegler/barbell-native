@@ -14,6 +14,8 @@ final class WatchSessionManager: NSObject {
     private(set) var isLoading = false
     private(set) var lastError: String?
 
+    private let exercisesCacheKey = "cachedWatchExercises"
+
     /// Returns the last used weight for an exercise
     func lastWeight(for exerciseId: UUID) -> Double? {
         // First check today's sets
@@ -28,6 +30,9 @@ final class WatchSessionManager: NSObject {
 
     override init() {
         super.init()
+        // Load cached exercises immediately so the list is never empty on
+        // launch, even before WatchConnectivity has a chance to connect.
+        exercises = loadCachedExercises()
         activateSession()
     }
 
@@ -54,7 +59,10 @@ final class WatchSessionManager: NSObject {
     /// Request exercises from iPhone
     func requestExercises() {
         guard WCSession.default.isReachable else {
-            lastError = "iPhone not reachable"
+            // Not an error if we already have exercises from cache.
+            if exercises.isEmpty {
+                lastError = "iPhone not reachable"
+            }
             return
         }
 
@@ -187,6 +195,7 @@ final class WatchSessionManager: NSObject {
         }
 
         self.exercises = exercises
+        cacheExercises(exercises)
         lastError = nil
     }
 
@@ -206,6 +215,32 @@ final class WatchSessionManager: NSObject {
 
         self.todaysSets = sets
         lastError = nil
+    }
+
+    // MARK: - Exercise Cache
+
+    /// Saves exercises to UserDefaults so they survive process restarts.
+    private func cacheExercises(_ exercises: [WatchExercise]) {
+        if let data = exercises.toData() {
+            UserDefaults.standard.set(data, forKey: exercisesCacheKey)
+        }
+    }
+
+    /// Loads exercises from UserDefaults. Returns an empty array if nothing is cached yet.
+    private func loadCachedExercises() -> [WatchExercise] {
+        guard let data = UserDefaults.standard.data(forKey: exercisesCacheKey),
+              let exercises = [WatchExercise].from(data: data) else {
+            return []
+        }
+        return exercises
+    }
+
+    /// Applies exercises received via applicationContext (background delivery from iPhone).
+    private func applyApplicationContext(_ context: [String: Any]) {
+        guard let data = context[WatchMessageKey.exercises.rawValue] as? Data,
+              let exercises = [WatchExercise].from(data: data) else { return }
+        self.exercises = exercises
+        cacheExercises(exercises)
     }
 
     private func handleLastWeightsResponse(_ reply: [String: Any]) {
@@ -239,9 +274,23 @@ extension WatchSessionManager: WCSessionDelegate {
             self.isConnected = session.isReachable
             print("WCSession activated: reachable=\(session.isReachable)")
 
+            // Apply any exercises the iPhone pushed while the Watch app was not running.
+            // This is the primary delivery path for exercise data — it works regardless
+            // of whether the iPhone is currently reachable.
+            let context = session.receivedApplicationContext
+            if !context.isEmpty {
+                self.applyApplicationContext(context)
+            }
+
             if session.isReachable {
                 self.requestInitialData()
             }
+        }
+    }
+
+    func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
+        DispatchQueue.main.async {
+            self.applyApplicationContext(applicationContext)
         }
     }
 
@@ -273,6 +322,7 @@ extension WatchSessionManager: WCSessionDelegate {
             if let data = message[WatchMessageKey.exercises.rawValue] as? Data,
                let exercises = [WatchExercise].from(data: data) {
                 self.exercises = exercises
+                cacheExercises(exercises)
             }
 
         case .setsUpdated:
