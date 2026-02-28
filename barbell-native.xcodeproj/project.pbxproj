@@ -41,16 +41,6 @@
 		8515CDD22F221B0500014291 /* barbell-watch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "barbell-watch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		FA690E922F505C070064A4C6 /* Exceptions for "barbell-watch Watch App" folder in "barbell-watch Watch App" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				"barbell-watch-Watch-App-Info.plist",
-			);
-			target = 8515CDD12F221B0500014291 /* barbell-watch Watch App */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		8514109B2F1BA43300FF7D5F /* barbell-native */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
@@ -59,9 +49,6 @@
 		};
 		8515CDD32F221B0500014291 /* barbell-watch Watch App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				FA690E922F505C070064A4C6 /* Exceptions for "barbell-watch Watch App" folder in "barbell-watch Watch App" target */,
-			);
 			path = "barbell-watch Watch App";
 			sourceTree = "<group>";
 		};
